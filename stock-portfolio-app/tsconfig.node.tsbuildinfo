@@ -1,0 +1,1 @@
+{"root":["./src/main/index.ts","./src/main/ipc.ts","./src/main/store.ts","./src/main/types.ts","./src/main/broker/credentialstore.ts","./src/main/broker/tossclient.ts","./src/main/broker/__tests__/credentialstore.test.ts","./src/main/broker/__tests__/tossclient.test.ts","./src/preload/index.ts","./electron.vite.config.ts"],"version":"5.9.3"}
