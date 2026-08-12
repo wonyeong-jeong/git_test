@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { AssetSnapshot, Holding, ManualPurchase } from '../../types'
-import { buildCostBasisTimeline, mergeCostBasisAndSnapshots, type CostDelta } from '../../domain/assetGrowth'
+import { buildCumulativeTimeline, mergeCostBasisAndSnapshots, type CumulativeDelta } from '../../domain/assetGrowth'
 
 interface Props {
   profileId: string
@@ -64,7 +64,7 @@ export default function AssetGrowthPage({ profileId, holdings }: Props): JSX.Ele
   const holdingsById = useMemo(() => new Map(holdings.map((h) => [h.id, h])), [holdings])
 
   function chartDataFor(currency: string): ReturnType<typeof mergeCostBasisAndSnapshots> {
-    const deltas: CostDelta[] = [
+    const deltas: CumulativeDelta[] = [
       ...holdings
         .filter((h) => h.currency === currency)
         .map((h) => ({ date: h.createdAt.slice(0, 10), amount: h.quantity * h.avgPrice })),
@@ -72,7 +72,7 @@ export default function AssetGrowthPage({ profileId, holdings }: Props): JSX.Ele
         .filter((p) => holdingsById.get(p.holdingId)?.currency === currency)
         .map((p) => ({ date: p.date, amount: (p.side === 'SELL' ? -1 : 1) * p.quantity * p.price }))
     ]
-    const costBasis = buildCostBasisTimeline(deltas)
+    const costBasis = buildCumulativeTimeline(deltas)
     const snapshotPoints = snapshots
       .filter((s) => s.valuesByCurrency[currency] != null)
       .map((s) => ({ date: s.date, value: s.valuesByCurrency[currency] }))

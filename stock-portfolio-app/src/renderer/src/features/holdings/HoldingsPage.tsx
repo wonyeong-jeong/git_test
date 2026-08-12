@@ -12,6 +12,7 @@ interface Props {
   profileId: string
   holdings: Holding[]
   onChanged: () => void
+  onOpenDetail: (holdingId: string) => void
 }
 
 const BROKERS: Broker[] = ['KIS', 'KB', 'TOSS', 'KAKAOPAY', 'MANUAL']
@@ -29,17 +30,18 @@ interface RowProps {
   holding: Holding
   quote?: Quote
   onDelete: (id: string) => void
+  onOpenDetail: (holdingId: string) => void
 }
 
 /** 행을 별도 컴포넌트로 분리한 이유: useFlashOnChange는 각 행마다 독립적으로 상태를 가져야
  * 하는데, 부모의 .map() 콜백 안에서 직접 훅을 호출하면 Rules of Hooks를 어기게 된다. */
-function HoldingRow({ holding, quote, onDelete }: RowProps): JSX.Element {
+function HoldingRow({ holding, quote, onDelete, onOpenDetail }: RowProps): JSX.Element {
   const flash = useFlashOnChange(quote?.lastPrice)
   const priceKnown = quote && quote.currency === holding.currency
   const pl = priceKnown ? (quote.lastPrice - holding.avgPrice) * holding.quantity : null
 
   return (
-    <tr>
+    <tr className="clickable-row" onClick={() => onOpenDetail(holding.id)}>
       <td>
         <span className="stock-name-cell">
           <StockAvatar ticker={holding.ticker} name={holding.name} />
@@ -58,7 +60,13 @@ function HoldingRow({ holding, quote, onDelete }: RowProps): JSX.Element {
         {pl === null ? '—' : `${pl >= 0 ? '+' : ''}${Math.round(pl).toLocaleString()}`}
       </td>
       <td>
-        <button className="link-danger" onClick={() => onDelete(holding.id)}>
+        <button
+          className="link-danger"
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete(holding.id)
+          }}
+        >
           삭제
         </button>
       </td>
@@ -66,7 +74,7 @@ function HoldingRow({ holding, quote, onDelete }: RowProps): JSX.Element {
   )
 }
 
-export default function HoldingsPage({ profileId, holdings, onChanged }: Props): JSX.Element {
+export default function HoldingsPage({ profileId, holdings, onChanged, onOpenDetail }: Props): JSX.Element {
   const [form, setForm] = useState(emptyForm)
   const [submitting, setSubmitting] = useState(false)
   const [manualEntry, setManualEntry] = useState(false)
@@ -249,7 +257,13 @@ export default function HoldingsPage({ profileId, holdings, onChanged }: Props):
             </thead>
             <tbody>
               {grouped[broker].map((h) => (
-                <HoldingRow key={h.id} holding={h} quote={quotes[h.ticker]} onDelete={handleDelete} />
+                <HoldingRow
+                  key={h.id}
+                  holding={h}
+                  quote={quotes[h.ticker]}
+                  onDelete={handleDelete}
+                  onOpenDetail={onOpenDetail}
+                />
               ))}
             </tbody>
           </table>

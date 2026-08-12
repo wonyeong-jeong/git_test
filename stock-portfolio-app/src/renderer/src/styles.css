@@ -455,6 +455,10 @@ tbody tr:hover {
   background: var(--bg);
 }
 
+.clickable-row {
+  cursor: pointer;
+}
+
 tbody tr:last-child td {
   border-bottom: none;
 }
