@@ -719,6 +719,172 @@ tbody tr:last-child td {
   cursor: not-allowed;
 }
 
+/* ---------- 기간(주/월/년) 선택 토글 ---------- */
+
+.period-toggle {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.period-toggle button {
+  padding: 7px 16px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  border-radius: 999px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted-strong);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.period-toggle button:hover {
+  border-color: var(--primary);
+}
+
+.period-toggle button.active {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+/* ---------- 캘린더 ---------- */
+
+.calendar-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+.calendar-nav {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 15px;
+}
+
+.calendar-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  font-size: 12px;
+  color: var(--muted-strong);
+}
+
+.calendar-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  font-size: 12px;
+  color: var(--muted);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 6px;
+}
+
+.calendar-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-height: 64px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease;
+  font-family: inherit;
+}
+
+.calendar-cell:hover {
+  background: var(--bg);
+}
+
+.calendar-cell.out-of-month {
+  opacity: 0.4;
+}
+
+.calendar-cell.today {
+  border-color: var(--primary);
+}
+
+.calendar-cell.selected {
+  background: var(--primary-soft);
+  border-color: var(--primary);
+}
+
+.calendar-cell-day {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.calendar-cell-dots {
+  display: flex;
+  gap: 3px;
+  flex-wrap: wrap;
+}
+
+.cal-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cal-dot-buy {
+  background: var(--primary);
+}
+
+.cal-dot-sell {
+  background: #b98900;
+}
+
+.cal-dot-dividend {
+  background: var(--positive);
+}
+
+.cal-dot-scheduled {
+  background: var(--muted);
+}
+
+/* ---------- 매수/매도 등 작은 뱃지 ---------- */
+
+.badge {
+  display: inline-block;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.badge-buy {
+  background: var(--primary-soft);
+  color: var(--primary-strong);
+}
+
+.badge-sell {
+  background: rgba(240, 171, 0, 0.14);
+  color: #a67200;
+}
+
 /* ---------- 종목 아바타 (로고 대신 티커 기반 색상 배지) ---------- */
 
 .stock-name-cell {

@@ -57,11 +57,15 @@ export interface DividendRecord {
   createdAt: string
 }
 
+export type TradeSide = 'BUY' | 'SELL'
+
 export interface ManualPurchase {
   id: string
   profileId: string
   holdingId: string
   date: string
+  /** 예전 기록엔 없을 수 있음 — main 프로세스 store.ts에서 읽을 때 'BUY'로 기본값 처리됨 */
+  side: TradeSide
   quantity: number
   price: number
   note?: string
@@ -82,4 +86,14 @@ export interface Quote {
   lastPrice: number
   currency: string
   timestamp: string
+}
+
+export interface AssetSnapshot {
+  id: string
+  profileId: string
+  /** YYYY-MM-DD */
+  date: string
+  /** 통화별 평가금액. KRW/USD를 섞어 더하지 않기 위해 통화별로 따로 보관한다(환율 미지원) */
+  valuesByCurrency: Record<string, number>
+  createdAt: string
 }

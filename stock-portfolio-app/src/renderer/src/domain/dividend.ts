@@ -47,3 +47,56 @@ export interface DividendRecordLike {
 export function sumDividendRecords(records: DividendRecordLike[], sinceDate?: string): number {
   return records.filter((r) => !sinceDate || r.date >= sinceDate).reduce((sum, r) => sum + r.amount, 0)
 }
+
+export type DividendGranularity = 'WEEK' | 'MONTH' | 'YEAR'
+
+export interface DividendBucket {
+  /** 정렬 가능한 키 (예: '2026-03', '2026-W07', '2026') */
+  key: string
+  /** 화면 표시용 라벨 */
+  label: string
+  total: number
+}
+
+/** ISO 8601 주차(연-Www). 목요일이 속한 연도를 그 주의 연도로 보는 표준 규칙을 따른다 */
+function isoWeekKey(dateStr: string): string {
+  const d = new Date(dateStr + 'T00:00:00')
+  const target = new Date(d.valueOf())
+  const mondayIndexedDay = (d.getDay() + 6) % 7 // 월=0 ... 일=6
+  target.setDate(target.getDate() - mondayIndexedDay + 3) // 그 주의 목요일로 이동
+
+  const firstThursday = new Date(target.getFullYear(), 0, 4)
+  const firstMondayIndexedDay = (firstThursday.getDay() + 6) % 7
+  firstThursday.setDate(firstThursday.getDate() - firstMondayIndexedDay + 3)
+
+  const weekNumber = 1 + Math.round((target.getTime() - firstThursday.getTime()) / (7 * 24 * 60 * 60 * 1000))
+  return `${target.getFullYear()}-W${String(weekNumber).padStart(2, '0')}`
+}
+
+function bucketKeyAndLabel(date: string, granularity: DividendGranularity): { key: string; label: string } {
+  if (granularity === 'YEAR') {
+    const year = date.slice(0, 4)
+    return { key: year, label: `${year}년` }
+  }
+  if (granularity === 'MONTH') {
+    const key = date.slice(0, 7) // YYYY-MM
+    const [y, m] = key.split('-')
+    return { key, label: `${y}년 ${Number(m)}월` }
+  }
+  const key = isoWeekKey(date)
+  return { key, label: key }
+}
+
+/** 배당 기록을 주/월/년 단위로 합산한다. 결과는 오래된 순으로 정렬된다 */
+export function groupDividendsByPeriod(records: DividendRecordLike[], granularity: DividendGranularity): DividendBucket[] {
+  const totals = new Map<string, { label: string; total: number }>()
+  for (const r of records) {
+    const { key, label } = bucketKeyAndLabel(r.date, granularity)
+    const cur = totals.get(key) ?? { label, total: 0 }
+    cur.total += r.amount
+    totals.set(key, cur)
+  }
+  return [...totals.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, v]) => ({ key, label: v.label, total: v.total }))
+}

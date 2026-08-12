@@ -1,5 +1,7 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
 import {
+  Bar,
+  BarChart,
   CartesianGrid,
   Line,
   LineChart,
@@ -10,8 +12,18 @@ import {
 } from 'recharts'
 import type { ContributionPlan, DividendRecord, Holding } from '../../types'
 import { projectContributionGrowth } from '../../domain/compound'
-import { aggregateDividendProjections, projectExpectedDividends, sumDividendRecords } from '../../domain/dividend'
+import {
+  aggregateDividendProjections,
+  groupDividendsByPeriod,
+  projectExpectedDividends,
+  sumDividendRecords,
+  type DividendGranularity
+} from '../../domain/dividend'
 import { calculateDividendTax } from '../../domain/tax'
+
+const GRANULARITY_LABELS: Record<DividendGranularity, string> = { WEEK: '주간', MONTH: '월간', YEAR: '연간' }
+/** 구간이 너무 많아지면 막대그래프가 읽기 어려워지므로 최근 N개만 보여준다 */
+const MAX_BUCKETS_SHOWN = 12
 
 interface Props {
   profileId: string
@@ -36,6 +48,7 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
 
   const [monthsHorizon, setMonthsHorizon] = useState(24)
   const [amountMultiplierPercent, setAmountMultiplierPercent] = useState(100)
+  const [granularity, setGranularity] = useState<DividendGranularity>('MONTH')
 
   async function refreshRecords(): Promise<void> {
     setRecords(await window.api.dividends.list(profileId))
@@ -74,6 +87,11 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
       ytdNet: calculateDividendTax(ytd).netDividend
     }
   }, [records])
+
+  const periodBuckets = useMemo(
+    () => groupDividendsByPeriod(records, granularity).slice(-MAX_BUCKETS_SHOWN),
+    [records, granularity]
+  )
 
   const dividendPlans = plans.filter((p) => p.assumedDividendYieldPercent > 0)
 
@@ -193,6 +211,42 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
           </tbody>
         </table>
       )}
+
+      <div className="card">
+        <h2 style={{ marginTop: 0, fontSize: 15 }}>기간별 배당 수익</h2>
+        {records.length === 0 ? (
+          <p className="empty-hint">기록된 배당이 없어서 기간별 집계를 보여드릴 게 없어요.</p>
+        ) : (
+          <>
+            <div className="period-toggle">
+              {(Object.keys(GRANULARITY_LABELS) as DividendGranularity[]).map((g) => (
+                <button
+                  key={g}
+                  type="button"
+                  className={granularity === g ? 'active' : ''}
+                  onClick={() => setGranularity(g)}
+                >
+                  {GRANULARITY_LABELS[g]}
+                </button>
+              ))}
+            </div>
+            <div style={{ width: '100%', height: 260 }}>
+              <ResponsiveContainer>
+                <BarChart data={periodBuckets}>
+                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                  <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                  <YAxis tickFormatter={(v) => `${Math.round(v / 10000)}만`} />
+                  <Tooltip formatter={(v: number) => `${Math.round(v).toLocaleString()}원`} />
+                  <Bar dataKey="total" name="배당 수익" fill="#3182F6" radius={[4, 4, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+            <p className="muted small">
+              최근 {Math.min(periodBuckets.length, MAX_BUCKETS_SHOWN)}개 구간만 표시합니다(세전 기준).
+            </p>
+          </>
+        )}
+      </div>
 
       <div className="card">
         <h2 style={{ marginTop: 0, fontSize: 15 }}>기대 배당금 시뮬레이션</h2>

@@ -38,21 +38,24 @@ const emptyProfileData: ProfileData = {
   manualPurchases: [],
   contributionPlans: [],
   dividendRecords: [],
-  watchlist: []
+  watchlist: [],
+  assetSnapshots: []
 }
 
-// 스키마에 필드가 추가될 때(dividendRecords, assumedDividendYieldPercent, watchlist 등) 예전에
-// 저장된 프로필 파일에는 그 필드가 없을 수 있으므로, 읽을 때마다 기본값으로 채워준다.
+// 스키마에 필드가 추가될 때(dividendRecords, assumedDividendYieldPercent, watchlist, side,
+// assetSnapshots 등) 예전에 저장된 프로필 파일에는 그 필드가 없을 수 있으므로, 읽을 때마다
+// 기본값으로 채워준다.
 function normalizeProfileData(data: ProfileData): ProfileData {
   return {
     holdings: data.holdings ?? [],
-    manualPurchases: data.manualPurchases ?? [],
+    manualPurchases: (data.manualPurchases ?? []).map((p) => ({ ...p, side: p.side ?? 'BUY' })),
     contributionPlans: (data.contributionPlans ?? []).map((p) => ({
       ...p,
       assumedDividendYieldPercent: p.assumedDividendYieldPercent ?? 0
     })),
     dividendRecords: data.dividendRecords ?? [],
-    watchlist: data.watchlist ?? []
+    watchlist: data.watchlist ?? [],
+    assetSnapshots: data.assetSnapshots ?? []
   }
 }
 

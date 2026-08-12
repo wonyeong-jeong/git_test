@@ -7,7 +7,7 @@ import {
   getProfileData,
   saveProfileData
 } from './store'
-import type { ContributionPlan, DividendRecord, Holding, ManualPurchase, WatchlistItem } from './types'
+import type { AssetSnapshot, ContributionPlan, DividendRecord, Holding, ManualPurchase, WatchlistItem } from './types'
 import { clearCredentials, hasCredentials, saveCredentials } from './broker/credentialStore'
 import { getQuotes } from './broker/tossClient'
 
@@ -156,4 +156,32 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('broker:getQuotes', (_e, symbols: string[]) => getQuotes(symbols))
+
+  ipcMain.handle('asset-snapshots:list', (_e, profileId: string) => getProfileData(profileId).assetSnapshots)
+
+  // 오늘 날짜(로컬 기준) 스냅샷이 이미 있으면 덮어쓰고, 없으면 새로 추가한다 — 하루 1개만 유지
+  ipcMain.handle('asset-snapshots:record', (_e, profileId: string, valuesByCurrency: Record<string, number>) => {
+    const data = getProfileData(profileId)
+    const today = new Date()
+    const isoDate = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+
+    const existing = data.assetSnapshots.find((s) => s.date === isoDate)
+    if (existing) {
+      existing.valuesByCurrency = valuesByCurrency
+      existing.createdAt = new Date().toISOString()
+      saveProfileData(profileId, data)
+      return existing
+    }
+
+    const snapshot: AssetSnapshot = {
+      id: randomUUID(),
+      profileId,
+      date: isoDate,
+      valuesByCurrency,
+      createdAt: new Date().toISOString()
+    }
+    data.assetSnapshots.push(snapshot)
+    saveProfileData(profileId, data)
+    return snapshot
+  })
 }

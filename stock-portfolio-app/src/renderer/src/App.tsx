@@ -6,9 +6,20 @@ import PortfolioSimulationPage from './features/portfolio-simulation/PortfolioSi
 import DividendsPage from './features/dividends/DividendsPage'
 import WatchlistPage from './features/watchlist/WatchlistPage'
 import TransactionsPage from './features/transactions/TransactionsPage'
+import CalendarPage from './features/calendar/CalendarPage'
+import AssetGrowthPage from './features/asset-growth/AssetGrowthPage'
 import BrokerSettingsPage from './features/settings/BrokerSettingsPage'
 
-type Tab = 'holdings' | 'plans' | 'portfolio' | 'dividends' | 'watchlist' | 'transactions' | 'broker'
+type Tab =
+  | 'holdings'
+  | 'plans'
+  | 'portfolio'
+  | 'dividends'
+  | 'watchlist'
+  | 'transactions'
+  | 'calendar'
+  | 'assetGrowth'
+  | 'broker'
 
 export default function App(): JSX.Element {
   const [profile, setProfile] = useState<Profile | null>(null)
@@ -42,7 +53,7 @@ export default function App(): JSX.Element {
             <span className="nav-icon">💼</span>보유 종목
           </button>
           <button className={tab === 'plans' ? 'active' : ''} onClick={() => setTab('plans')}>
-            <span className="nav-icon">📅</span>적립식 계획 &amp; 시뮬레이션
+            <span className="nav-icon">🔁</span>적립식 계획 &amp; 시뮬레이션
           </button>
           <button className={tab === 'portfolio' ? 'active' : ''} onClick={() => setTab('portfolio')}>
             <span className="nav-icon">📊</span>포트폴리오 합산
@@ -55,6 +66,12 @@ export default function App(): JSX.Element {
           </button>
           <button className={tab === 'transactions' ? 'active' : ''} onClick={() => setTab('transactions')}>
             <span className="nav-icon">🧾</span>매매 이력
+          </button>
+          <button className={tab === 'calendar' ? 'active' : ''} onClick={() => setTab('calendar')}>
+            <span className="nav-icon">🗓️</span>캘린더
+          </button>
+          <button className={tab === 'assetGrowth' ? 'active' : ''} onClick={() => setTab('assetGrowth')}>
+            <span className="nav-icon">💹</span>자산 증식
           </button>
           <button className={tab === 'broker' ? 'active' : ''} onClick={() => setTab('broker')}>
             <span className="nav-icon">🔌</span>API 연결
@@ -70,6 +87,8 @@ export default function App(): JSX.Element {
         {tab === 'dividends' && <DividendsPage profileId={profile.id} holdings={holdings} />}
         {tab === 'watchlist' && <WatchlistPage profileId={profile.id} />}
         {tab === 'transactions' && <TransactionsPage profileId={profile.id} holdings={holdings} />}
+        {tab === 'calendar' && <CalendarPage profileId={profile.id} holdings={holdings} />}
+        {tab === 'assetGrowth' && <AssetGrowthPage profileId={profile.id} holdings={holdings} />}
         {tab === 'broker' && <BrokerSettingsPage />}
       </main>
     </div>

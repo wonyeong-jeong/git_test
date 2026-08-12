@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 import type {
+  AssetSnapshot,
   ContributionPlan,
   DividendRecord,
   Holding,
@@ -68,6 +69,11 @@ const api = {
       ipcRenderer.invoke('broker:saveCredentials', clientId, clientSecret),
     clearCredentials: (): Promise<boolean> => ipcRenderer.invoke('broker:clearCredentials'),
     getQuotes: (symbols: string[]): Promise<Quote[]> => ipcRenderer.invoke('broker:getQuotes', symbols)
+  },
+  assetSnapshots: {
+    list: (profileId: string): Promise<AssetSnapshot[]> => ipcRenderer.invoke('asset-snapshots:list', profileId),
+    record: (profileId: string, valuesByCurrency: Record<string, number>): Promise<AssetSnapshot> =>
+      ipcRenderer.invoke('asset-snapshots:record', profileId, valuesByCurrency)
   }
 }
 

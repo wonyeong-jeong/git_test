@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useMemo, useState } from 'react'
-import type { Holding, ManualPurchase } from '../../types'
+import type { Holding, ManualPurchase, TradeSide } from '../../types'
 
 interface Props {
   profileId: string
@@ -8,11 +8,14 @@ interface Props {
 
 const emptyForm = {
   holdingId: '',
+  side: 'BUY' as TradeSide,
   date: new Date().toISOString().slice(0, 10),
   quantity: '',
   price: '',
   note: ''
 }
+
+const SIDE_LABELS: Record<TradeSide, string> = { BUY: '매수', SELL: '매도' }
 
 export default function TransactionsPage({ profileId, holdings }: Props): JSX.Element {
   const [records, setRecords] = useState<ManualPurchase[]>([])
@@ -24,6 +27,7 @@ export default function TransactionsPage({ profileId, holdings }: Props): JSX.El
 
   useEffect(() => {
     refresh()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId])
 
   async function handleSubmit(e: FormEvent): Promise<void> {
@@ -31,12 +35,13 @@ export default function TransactionsPage({ profileId, holdings }: Props): JSX.El
     if (!form.holdingId || !form.quantity || !form.price) return
     await window.api.manualPurchases.create(profileId, {
       holdingId: form.holdingId,
+      side: form.side,
       date: form.date,
       quantity: Number(form.quantity),
       price: Number(form.price),
       note: form.note || undefined
     })
-    setForm(emptyForm)
+    setForm({ ...emptyForm, side: form.side })
     refresh()
   }
 
@@ -50,12 +55,14 @@ export default function TransactionsPage({ profileId, holdings }: Props): JSX.El
     return h ? `${h.name} (${h.ticker})` : '(삭제된 종목)'
   }
 
+  // 매도 기록은 수량/금액을 마이너스로 반영해서 "순매수" 기준으로 집계한다
   const byHolding = useMemo(() => {
     const map = new Map<string, { quantity: number; amount: number }>()
     for (const r of records) {
+      const sign = r.side === 'SELL' ? -1 : 1
       const cur = map.get(r.holdingId) ?? { quantity: 0, amount: 0 }
-      cur.quantity += r.quantity
-      cur.amount += r.quantity * r.price
+      cur.quantity += sign * r.quantity
+      cur.amount += sign * r.quantity * r.price
       map.set(r.holdingId, cur)
     }
     return [...map.entries()].map(([holdingId, v]) => ({
@@ -66,13 +73,13 @@ export default function TransactionsPage({ profileId, holdings }: Props): JSX.El
     }))
   }, [records])
 
-  const totalAmount = records.reduce((sum, r) => sum + r.quantity * r.price, 0)
+  const netAmount = records.reduce((sum, r) => sum + (r.side === 'SELL' ? -1 : 1) * r.quantity * r.price, 0)
 
   return (
     <div>
       <div className="page-header">
         <h1>매매 이력</h1>
-        <div className="summary-pill">기록된 총 매수금액 {Math.round(totalAmount).toLocaleString()}원</div>
+        <div className="summary-pill">기록 기준 순매수금액 {Math.round(netAmount).toLocaleString()}원</div>
       </div>
 
       <p className="muted small" style={{ marginTop: -8, marginBottom: 20 }}>
@@ -90,6 +97,13 @@ export default function TransactionsPage({ profileId, holdings }: Props): JSX.El
                 {h.name} ({h.ticker})
               </option>
             ))}
+          </select>
+        </label>
+        <label>
+          매수/매도
+          <select value={form.side} onChange={(e) => setForm({ ...form, side: e.target.value as TradeSide })}>
+            <option value="BUY">매수</option>
+            <option value="SELL">매도</option>
           </select>
         </label>
         <label>
@@ -127,14 +141,14 @@ export default function TransactionsPage({ profileId, holdings }: Props): JSX.El
 
       {byHolding.length > 0 && (
         <div className="card">
-          <h2 style={{ marginTop: 0, fontSize: 15 }}>종목별 요약</h2>
+          <h2 style={{ marginTop: 0, fontSize: 15 }}>종목별 요약 (순매수 기준)</h2>
           <table>
             <thead>
               <tr>
                 <th>종목</th>
-                <th>기록된 매수수량</th>
-                <th>기록된 매수금액</th>
-                <th>평균 매수가</th>
+                <th>순매수수량</th>
+                <th>순매수금액</th>
+                <th>평균 단가</th>
               </tr>
             </thead>
             <tbody>
@@ -158,6 +172,7 @@ export default function TransactionsPage({ profileId, holdings }: Props): JSX.El
           <thead>
             <tr>
               <th>체결일</th>
+              <th>구분</th>
               <th>종목</th>
               <th>수량</th>
               <th>체결가</th>
@@ -172,6 +187,11 @@ export default function TransactionsPage({ profileId, holdings }: Props): JSX.El
               .map((r) => (
                 <tr key={r.id}>
                   <td>{r.date}</td>
+                  <td>
+                    <span className={`badge ${r.side === 'SELL' ? 'badge-sell' : 'badge-buy'}`}>
+                      {SIDE_LABELS[r.side ?? 'BUY']}
+                    </span>
+                  </td>
                   <td>{holdingLabel(r.holdingId)}</td>
                   <td>{r.quantity.toLocaleString()}</td>
                   <td>{r.price.toLocaleString()}원</td>
