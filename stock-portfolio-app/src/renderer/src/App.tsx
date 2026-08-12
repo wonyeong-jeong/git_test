@@ -39,25 +39,25 @@ export default function App(): JSX.Element {
         <div className="profile-name">{profile.name}</div>
         <nav>
           <button className={tab === 'holdings' ? 'active' : ''} onClick={() => setTab('holdings')}>
-            보유 종목
+            <span className="nav-icon">💼</span>보유 종목
           </button>
           <button className={tab === 'plans' ? 'active' : ''} onClick={() => setTab('plans')}>
-            적립식 계획 &amp; 시뮬레이션
+            <span className="nav-icon">📅</span>적립식 계획 &amp; 시뮬레이션
           </button>
           <button className={tab === 'portfolio' ? 'active' : ''} onClick={() => setTab('portfolio')}>
-            포트폴리오 합산
+            <span className="nav-icon">📊</span>포트폴리오 합산
           </button>
           <button className={tab === 'dividends' ? 'active' : ''} onClick={() => setTab('dividends')}>
-            배당
+            <span className="nav-icon">💰</span>배당
           </button>
           <button className={tab === 'watchlist' ? 'active' : ''} onClick={() => setTab('watchlist')}>
-            관심종목
+            <span className="nav-icon">⭐</span>관심종목
           </button>
           <button className={tab === 'transactions' ? 'active' : ''} onClick={() => setTab('transactions')}>
-            매매 이력
+            <span className="nav-icon">🧾</span>매매 이력
           </button>
           <button className={tab === 'broker' ? 'active' : ''} onClick={() => setTab('broker')}>
-            API 연결
+            <span className="nav-icon">🔌</span>API 연결
           </button>
         </nav>
       </aside>

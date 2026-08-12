@@ -1,22 +1,77 @@
 :root {
-  --bg: #f5f6f8;
+  /* Toss/KB증권 MTS를 참고한 컬러 토큰 */
+  --bg: #f2f4f6;
   --surface: #ffffff;
-  --border: #e3e5e9;
-  --text: #1a1c20;
-  --muted: #6b7280;
-  --primary: #2f6fed;
-  --positive: #2f9e44;
-  font-family: -apple-system, 'Pretendard', 'Malgun Gothic', 'Segoe UI', sans-serif;
+  --border: #e5e8eb;
+  --text: #191f28;
+  --muted: #8b95a1;
+  --muted-strong: #6b7684;
+
+  --primary: #3182f6;
+  --primary-strong: #1b64da;
+  --primary-soft: rgba(49, 130, 246, 0.1);
+
+  /* 성공/연결 상태 등 일반적인 "좋음"의 의미 (초록) */
+  --positive: #17a34a;
+  --positive-soft: rgba(23, 163, 74, 0.1);
+
+  /* 국내 증권시장 관례: 상승·수익은 빨강, 하락·손실은 파랑 */
+  --gain: #f04452;
+  --gain-soft: rgba(240, 68, 82, 0.08);
+  --loss: #3182f6;
+
+  /* 폼 에러 등 일반 오류 메시지 (증시 색상과는 별개 의미) */
+  --danger: #e03131;
+
+  --radius-lg: 20px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+  --shadow-card: 0 2px 10px rgba(25, 31, 40, 0.04), 0 1px 2px rgba(25, 31, 40, 0.03);
+  --shadow-hover: 0 8px 20px rgba(25, 31, 40, 0.08);
+
+  font-family:
+    -apple-system,
+    'Pretendard Variable',
+    'Pretendard',
+    'Malgun Gothic',
+    'Segoe UI',
+    sans-serif;
 }
 
 * {
   box-sizing: border-box;
 }
 
+html {
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #d1d6db;
+  border-radius: 999px;
+  border: 2px solid var(--bg);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #b9c0c7;
 }
 
 .loading {
@@ -25,6 +80,7 @@ body {
   justify-content: center;
   height: 100vh;
   color: var(--muted);
+  font-size: 14px;
 }
 
 .app {
@@ -32,146 +88,325 @@ body {
   height: 100vh;
 }
 
+/* ---------- 사이드바 ---------- */
+
 .sidebar {
-  width: 240px;
+  width: 248px;
   flex-shrink: 0;
   background: var(--surface);
   border-right: 1px solid var(--border);
-  padding: 20px 16px;
+  padding: 24px 16px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 26px;
 }
 
 .brand {
-  font-weight: 700;
-  font-size: 16px;
+  font-weight: 800;
+  font-size: 17px;
+  letter-spacing: -0.02em;
+  padding: 0 8px;
 }
 
 .profile-name {
   font-size: 13px;
   color: var(--muted);
-  margin-top: -16px;
+  margin-top: -18px;
+  padding: 0 8px;
 }
 
 .sidebar nav {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 2px;
 }
 
 .sidebar nav button {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   text-align: left;
-  padding: 10px 12px;
+  padding: 11px 12px;
   border: none;
   background: transparent;
-  border-radius: 8px;
+  border-radius: 12px;
   cursor: pointer;
   font-size: 14px;
-  color: var(--text);
+  font-weight: 500;
+  color: var(--muted-strong);
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    transform 0.1s ease;
+}
+
+.nav-icon {
+  font-size: 15px;
+  line-height: 1;
+  width: 18px;
+  text-align: center;
+  flex-shrink: 0;
 }
 
 .sidebar nav button:hover {
   background: var(--bg);
+  color: var(--text);
+}
+
+.sidebar nav button:active {
+  transform: scale(0.98);
 }
 
 .sidebar nav button.active {
   background: var(--primary);
   color: white;
+  font-weight: 600;
+  box-shadow: 0 4px 12px rgba(49, 130, 246, 0.28);
 }
+
+/* ---------- 본문 ---------- */
 
 .content {
   flex: 1;
   overflow-y: auto;
-  padding: 28px 36px;
+  padding: 32px 40px 60px;
 }
 
 .page-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 16px;
+  margin-bottom: 20px;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .page-header h1 {
-  font-size: 20px;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
   margin: 0;
 }
 
 .summary-pill {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  padding: 6px 14px;
+  background: var(--bg);
+  border: none;
+  padding: 8px 16px;
   border-radius: 999px;
-  font-size: 13px;
-  color: var(--muted);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted-strong);
+  white-space: nowrap;
 }
 
 .summary-pill.ok {
+  background: var(--positive-soft);
   color: var(--positive);
-  border-color: var(--positive);
 }
 
 .status-ok {
   color: var(--positive);
+  font-weight: 600;
+  font-size: 13px;
 }
 
 .status-error {
-  color: #e03131;
+  color: var(--danger);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* 국내 증시 관례: 상승/수익 = 빨강, 하락/손실 = 파랑 */
+.num-positive {
+  color: var(--gain);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.num-negative {
+  color: var(--loss);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
 }
 
 .card {
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 20px;
+  border-radius: var(--radius-lg);
+  padding: 24px;
   margin-bottom: 24px;
+  box-shadow: var(--shadow-card);
 }
 
 .form-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-  gap: 14px;
+  gap: 16px;
   align-items: end;
 }
 
-.form-grid label {
+/* 기본 label: 텍스트 위 + 인풋 아래 형태. 체크박스 토글용 label(.tax-toggle 등)은 아래에서 row로 재정의 */
+label {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  font-size: 13px;
-  color: var(--muted);
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted-strong);
 }
 
-.form-grid input,
-.form-grid select {
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+/* ---------- 인풋 / 셀렉트 (체크박스·레인지 제외) ---------- */
+
+input:not([type='checkbox']):not([type='range']),
+select {
+  padding: 11px 14px;
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-sm);
   font-size: 14px;
+  font-family: inherit;
   color: var(--text);
   background: var(--bg);
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+  width: 100%;
 }
+
+input:not([type='checkbox']):not([type='range'])::placeholder {
+  color: #adb5bd;
+}
+
+input:not([type='checkbox']):not([type='range']):focus,
+select:focus {
+  outline: none;
+  border-color: var(--primary);
+  background: var(--surface);
+  box-shadow: 0 0 0 3px var(--primary-soft);
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+/* ---------- 토글 스위치 (체크박스를 pill 스위치로) ---------- */
+
+input[type='checkbox'] {
+  -webkit-appearance: none;
+  appearance: none;
+  position: relative;
+  width: 40px;
+  height: 24px;
+  border-radius: 999px;
+  background: var(--border);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.2s ease;
+}
+
+input[type='checkbox']::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(25, 31, 40, 0.2);
+  transition: transform 0.2s ease;
+}
+
+input[type='checkbox']:checked {
+  background: var(--primary);
+}
+
+input[type='checkbox']:checked::before {
+  transform: translateX(16px);
+}
+
+input[type='checkbox']:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* ---------- 슬라이더 ---------- */
+
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--border);
+  outline: none;
+  margin-top: 6px;
+  cursor: pointer;
+}
+
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--primary);
+  border: 3px solid #fff;
+  box-shadow: 0 1px 4px rgba(25, 31, 40, 0.28);
+  cursor: pointer;
+  transition: transform 0.15s ease;
+}
+
+input[type='range']::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+
+/* ---------- 버튼 ---------- */
 
 button.primary {
   background: var(--primary);
   color: white;
   border: none;
-  padding: 10px 16px;
-  border-radius: 8px;
+  padding: 11px 18px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: 14px;
+  font-weight: 600;
   height: fit-content;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease,
+    box-shadow 0.15s ease;
+  box-shadow: 0 2px 8px rgba(49, 130, 246, 0.22);
+}
+
+button.primary:hover:not(:disabled) {
+  background: var(--primary-strong);
+  box-shadow: 0 4px 14px rgba(49, 130, 246, 0.3);
+}
+
+button.primary:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 button.primary:disabled {
-  opacity: 0.5;
+  opacity: 0.45;
   cursor: not-allowed;
+  box-shadow: none;
 }
 
 .empty-hint {
   color: var(--muted);
-  font-size: 14px;
+  font-size: 13.5px;
+  background: var(--bg);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  padding: 26px 20px;
+  text-align: center;
+  margin-bottom: 20px;
 }
 
 .broker-group {
@@ -179,30 +414,49 @@ button.primary:disabled {
 }
 
 .broker-group h2 {
-  font-size: 15px;
-  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 10px;
 }
+
+/* ---------- 테이블 ---------- */
 
 table {
   width: 100%;
   border-collapse: collapse;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   overflow: hidden;
+  box-shadow: var(--shadow-card);
 }
 
 th,
 td {
   text-align: left;
-  padding: 10px 14px;
-  font-size: 13px;
+  padding: 13px 16px;
+  font-size: 13.5px;
   border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
 }
 
 th {
-  color: var(--muted);
-  font-weight: 500;
+  background: var(--bg);
+  color: var(--muted-strong);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+tbody tr {
+  transition: background 0.12s ease;
+}
+
+tbody tr:hover {
+  background: var(--bg);
+}
+
+tbody tr:last-child td {
+  border-bottom: none;
 }
 
 .muted {
@@ -214,11 +468,19 @@ th {
 }
 
 .link-danger {
-  color: #e03131;
+  color: var(--danger);
   background: none;
   border: none;
   cursor: pointer;
   font-size: 13px;
+  font-weight: 500;
+  padding: 0;
+  transition: opacity 0.15s ease;
+}
+
+.link-danger:hover {
+  opacity: 0.7;
+  text-decoration: underline;
 }
 
 .plan-layout {
@@ -239,28 +501,41 @@ th {
   flex-direction: column;
   gap: 4px;
   text-align: left;
-  padding: 14px;
-  border-radius: 10px;
+  padding: 16px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--surface);
   cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease,
+    transform 0.1s ease,
+    background 0.15s ease;
+}
+
+.plan-card:hover {
+  border-color: var(--primary);
+  box-shadow: var(--shadow-hover);
+  transform: translateY(-1px);
 }
 
 .plan-card.selected {
   border-color: var(--primary);
+  background: var(--primary-soft);
   box-shadow: 0 0 0 1px var(--primary);
 }
 
 .simulation-panel h2 {
   margin-top: 0;
   font-size: 16px;
+  font-weight: 700;
 }
 
 .sim-controls {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 16px;
-  margin-bottom: 20px;
+  gap: 18px;
+  margin-bottom: 22px;
 }
 
 .sim-controls label {
@@ -268,7 +543,8 @@ th {
   flex-direction: column;
   gap: 6px;
   font-size: 13px;
-  color: var(--muted);
+  color: var(--muted-strong);
+  font-weight: 500;
 }
 
 .summary-cards {
@@ -280,25 +556,38 @@ th {
 
 .summary-card {
   background: var(--bg);
-  border-radius: 10px;
-  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 5px;
+  transition: background 0.15s ease;
 }
 
 .summary-card .label {
   font-size: 12px;
   color: var(--muted);
+  font-weight: 500;
 }
 
 .summary-card .value {
-  font-size: 17px;
-  font-weight: 600;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  font-variant-numeric: tabular-nums;
+}
+
+.summary-card.highlight {
+  background: var(--gain-soft);
 }
 
 .summary-card.highlight .value {
-  color: var(--positive);
+  color: var(--gain);
+}
+
+.summary-card.highlight .label {
+  color: var(--gain);
+  opacity: 0.85;
 }
 
 .stock-search {
@@ -307,29 +596,30 @@ th {
 
 .stock-search-dropdown {
   position: absolute;
-  top: calc(100% + 4px);
+  top: calc(100% + 6px);
   left: 0;
   right: 0;
   z-index: 20;
   background: var(--surface);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   max-height: 240px;
   overflow-y: auto;
   list-style: none;
   margin: 0;
-  padding: 4px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  padding: 6px;
+  box-shadow: var(--shadow-hover);
 }
 
 .stock-search-dropdown li {
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 10px;
-  border-radius: 6px;
+  padding: 9px 10px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 13px;
+  transition: background 0.12s ease;
 }
 
 .stock-search-dropdown li:hover {
@@ -340,26 +630,34 @@ th {
   align-self: end;
   font-size: 13px;
   color: var(--text);
-  padding-bottom: 8px;
+  padding-bottom: 12px;
 }
 
 .link-plain {
   background: none;
   border: none;
   color: var(--primary);
-  font-size: 12px;
+  font-size: 12.5px;
+  font-weight: 600;
   cursor: pointer;
   padding: 0;
   align-self: end;
-  padding-bottom: 10px;
+  padding-bottom: 12px;
+  transition: opacity 0.15s ease;
+}
+
+.link-plain:hover {
+  opacity: 0.7;
 }
 
 .tax-toggle {
   display: flex;
+  flex-direction: row;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   font-size: 13px;
-  color: var(--muted);
+  font-weight: 500;
+  color: var(--muted-strong);
   margin-bottom: 16px;
   cursor: pointer;
 }
@@ -367,37 +665,7 @@ th {
 .tax-panel {
   background: var(--bg);
   margin-bottom: 20px;
-}
-
-.watchlist-controls {
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  flex-wrap: wrap;
-  margin-bottom: 16px;
-  font-size: 13px;
-  color: var(--muted);
-}
-
-.watchlist-controls label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-}
-
-.watchlist-controls select {
-  padding: 6px 8px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  font-size: 13px;
-  background: var(--bg);
-  color: var(--text);
-}
-
-.watchlist-controls select:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
+  box-shadow: none;
 }
 
 .upcoming-list {
@@ -407,5 +675,46 @@ th {
   font-size: 13px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
+}
+
+.upcoming-list li {
+  background: var(--bg);
+  border-radius: 8px;
+  padding: 9px 12px;
+}
+
+/* ---------- 관심종목 자동 갱신 컨트롤 ---------- */
+
+.watchlist-controls {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted-strong);
+}
+
+.watchlist-controls label {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted-strong);
+}
+
+.watchlist-controls select {
+  width: auto;
+  padding: 7px 10px;
+  font-size: 13px;
+}
+
+.watchlist-controls select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

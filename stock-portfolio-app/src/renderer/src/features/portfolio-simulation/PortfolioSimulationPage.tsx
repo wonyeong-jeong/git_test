@@ -178,8 +178,8 @@ export default function PortfolioSimulationPage({ profileId, holdings }: Props):
                   <YAxis tickFormatter={(v) => `${Math.round(v / 10000)}만`} />
                   <Tooltip formatter={(v: number) => `${Math.round(v).toLocaleString()}원`} labelFormatter={(m) => `${m}개월차`} />
                   <Legend />
-                  <Line type="monotone" dataKey="contributed" name="납입원금 합산" stroke="#8884d8" dot={false} />
-                  <Line type="monotone" dataKey="value" name="평가금액 합산" stroke="#2f9e44" dot={false} strokeWidth={2} />
+                  <Line type="monotone" dataKey="contributed" name="납입원금 합산" stroke="#ADB5BD" dot={false} />
+                  <Line type="monotone" dataKey="value" name="평가금액 합산" stroke="#3182F6" dot={false} strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
             </div>

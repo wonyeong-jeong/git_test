@@ -211,7 +211,7 @@ export default function HoldingsPage({ profileId, holdings, onChanged }: Props):
                     </td>
                     <td>{(h.quantity * h.avgPrice).toLocaleString()}</td>
                     <td>{quote ? `${quote.lastPrice.toLocaleString()} ${quote.currency}` : '—'}</td>
-                    <td className={pl === null ? '' : pl >= 0 ? 'status-ok' : 'status-error'}>
+                    <td className={pl === null ? '' : pl >= 0 ? 'num-positive' : 'num-negative'}>
                       {pl === null ? '—' : `${pl >= 0 ? '+' : ''}${Math.round(pl).toLocaleString()}`}
                     </td>
                     <td>

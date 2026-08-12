@@ -250,7 +250,7 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
                     formatter={(v: number) => `${Math.round(v).toLocaleString()}원`}
                     labelFormatter={(m) => `${m}개월차`}
                   />
-                  <Line type="monotone" dataKey="expectedAnnualDividend" name="예상 연간 배당금" stroke="#f08c00" dot={false} strokeWidth={2} />
+                  <Line type="monotone" dataKey="expectedAnnualDividend" name="예상 연간 배당금" stroke="#3182F6" dot={false} strokeWidth={2} />
                 </LineChart>
               </ResponsiveContainer>
             </div>
