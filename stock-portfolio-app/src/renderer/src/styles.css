@@ -686,7 +686,7 @@ tbody tr:last-child td {
 
 /* ---------- 관심종목 자동 갱신 컨트롤 ---------- */
 
-.watchlist-controls {
+.auto-refresh-controls {
   display: flex;
   align-items: center;
   gap: 16px;
@@ -697,7 +697,7 @@ tbody tr:last-child td {
   color: var(--muted-strong);
 }
 
-.watchlist-controls label {
+.auto-refresh-controls label {
   display: flex;
   flex-direction: row;
   align-items: center;
@@ -708,13 +708,119 @@ tbody tr:last-child td {
   color: var(--muted-strong);
 }
 
-.watchlist-controls select {
+.auto-refresh-controls select {
   width: auto;
   padding: 7px 10px;
   font-size: 13px;
 }
 
-.watchlist-controls select:disabled {
+.auto-refresh-controls select:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+/* ---------- 종목 아바타 (로고 대신 티커 기반 색상 배지) ---------- */
+
+.stock-name-cell {
+  display: inline-flex;
+  align-items: center;
+}
+
+.stock-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin-right: 10px;
+  flex-shrink: 0;
+}
+
+/* ---------- 시세 갱신 시 깜빡임 (국내 증시 관례: 상승=빨강 / 하락=파랑) ---------- */
+
+@keyframes flash-up {
+  0% {
+    background: var(--gain-soft);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+@keyframes flash-down {
+  0% {
+    background: rgba(49, 130, 246, 0.14);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+.flash-up {
+  animation: flash-up 0.8s ease-out;
+}
+
+.flash-down {
+  animation: flash-down 0.8s ease-out;
+}
+
+/* ---------- 장 상태 배지 ---------- */
+
+.market-status {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.market-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--bg);
+  color: var(--muted-strong);
+}
+
+.market-status-pill::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.6;
+}
+
+.market-status-pill.session-regular {
+  background: var(--positive-soft);
+  color: var(--positive);
+}
+
+.market-status-pill.session-regular::before {
+  animation: pulse-dot 1.6s ease-in-out infinite;
+}
+
+.market-status-pill.session-pre,
+.market-status-pill.session-after {
+  background: rgba(240, 171, 0, 0.12);
+  color: #b98900;
+}
+
+@keyframes pulse-dot {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.2);
+  }
 }

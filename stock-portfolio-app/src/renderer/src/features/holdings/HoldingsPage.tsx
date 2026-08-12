@@ -2,6 +2,11 @@ import { FormEvent, useState } from 'react'
 import type { Broker, Holding, Quote } from '../../types'
 import { BROKER_LABELS } from '../../types'
 import StockSearchInput, { type StockOption } from '../../components/StockSearchInput'
+import StockAvatar from '../../components/StockAvatar'
+import MarketStatusBadge from '../../components/MarketStatusBadge'
+import AutoRefreshControls from '../../components/AutoRefreshControls'
+import { useAutoRefreshQuotes } from '../../hooks/useAutoRefreshQuotes'
+import { useFlashOnChange } from '../../hooks/useFlashOnChange'
 
 interface Props {
   profileId: string
@@ -20,13 +25,64 @@ const emptyForm = {
   currency: 'KRW' as 'KRW' | 'USD'
 }
 
+interface RowProps {
+  holding: Holding
+  quote?: Quote
+  onDelete: (id: string) => void
+}
+
+/** 행을 별도 컴포넌트로 분리한 이유: useFlashOnChange는 각 행마다 독립적으로 상태를 가져야
+ * 하는데, 부모의 .map() 콜백 안에서 직접 훅을 호출하면 Rules of Hooks를 어기게 된다. */
+function HoldingRow({ holding, quote, onDelete }: RowProps): JSX.Element {
+  const flash = useFlashOnChange(quote?.lastPrice)
+  const priceKnown = quote && quote.currency === holding.currency
+  const pl = priceKnown ? (quote.lastPrice - holding.avgPrice) * holding.quantity : null
+
+  return (
+    <tr>
+      <td>
+        <span className="stock-name-cell">
+          <StockAvatar ticker={holding.ticker} name={holding.name} />
+          {holding.name} <span className="muted">({holding.ticker})</span>
+        </span>
+      </td>
+      <td>{holding.quantity.toLocaleString()}</td>
+      <td>
+        {holding.avgPrice.toLocaleString()} {holding.currency}
+      </td>
+      <td>{(holding.quantity * holding.avgPrice).toLocaleString()}</td>
+      <td className={flash ? `flash-${flash}` : ''}>
+        {quote ? `${quote.lastPrice.toLocaleString()} ${quote.currency}` : '—'}
+      </td>
+      <td className={pl === null ? '' : pl >= 0 ? 'num-positive' : 'num-negative'}>
+        {pl === null ? '—' : `${pl >= 0 ? '+' : ''}${Math.round(pl).toLocaleString()}`}
+      </td>
+      <td>
+        <button className="link-danger" onClick={() => onDelete(holding.id)}>
+          삭제
+        </button>
+      </td>
+    </tr>
+  )
+}
+
 export default function HoldingsPage({ profileId, holdings, onChanged }: Props): JSX.Element {
   const [form, setForm] = useState(emptyForm)
   const [submitting, setSubmitting] = useState(false)
-  const [quotes, setQuotes] = useState<Record<string, Quote>>({})
-  const [priceStatus, setPriceStatus] = useState<'idle' | 'loading' | 'error'>('idle')
-  const [priceError, setPriceError] = useState<string | null>(null)
   const [manualEntry, setManualEntry] = useState(false)
+
+  const {
+    quotes,
+    status: priceStatus,
+    error: priceError,
+    lastUpdated,
+    autoRefresh,
+    setAutoRefresh,
+    intervalSeconds,
+    setIntervalSeconds,
+    marketsClosedNow,
+    refreshNow
+  } = useAutoRefreshQuotes(holdings)
 
   function handleStockSelect(option: StockOption): void {
     setForm((f) => ({ ...f, ticker: option.code, name: option.name, currency: 'KRW' }))
@@ -42,23 +98,7 @@ export default function HoldingsPage({ profileId, holdings, onChanged }: Props):
   )
 
   const totalValue = holdings.reduce((sum, h) => sum + h.quantity * h.avgPrice, 0)
-
-  async function handleRefreshPrices(): Promise<void> {
-    if (holdings.length === 0) return
-    setPriceStatus('loading')
-    setPriceError(null)
-    try {
-      const tickers = holdings.map((h) => h.ticker)
-      const results = await window.api.broker.getQuotes(tickers)
-      const map: Record<string, Quote> = {}
-      for (const q of results) map[q.symbol] = q
-      setQuotes(map)
-      setPriceStatus('idle')
-    } catch (err) {
-      setPriceStatus('error')
-      setPriceError(err instanceof Error ? err.message : String(err))
-    }
-  }
+  const heldCurrencies = [...new Set(holdings.map((h) => h.currency))]
 
   async function handleSubmit(e: FormEvent): Promise<void> {
     e.preventDefault()
@@ -90,12 +130,24 @@ export default function HoldingsPage({ profileId, holdings, onChanged }: Props):
       <div className="page-header">
         <h1>보유 종목</h1>
         <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
-          <button className="primary" onClick={handleRefreshPrices} disabled={priceStatus === 'loading' || holdings.length === 0}>
+          <MarketStatusBadge currencies={heldCurrencies} />
+          <button className="primary" onClick={refreshNow} disabled={priceStatus === 'loading' || holdings.length === 0}>
             {priceStatus === 'loading' ? '현재가 불러오는 중...' : '현재가 새로고침'}
           </button>
           <div className="summary-pill">총 매입금액 {totalValue.toLocaleString()}원</div>
         </div>
       </div>
+
+      {holdings.length > 0 && (
+        <AutoRefreshControls
+          enabled={autoRefresh}
+          onToggle={setAutoRefresh}
+          intervalSeconds={intervalSeconds}
+          onIntervalChange={setIntervalSeconds}
+          lastUpdated={lastUpdated}
+          marketsClosedNow={marketsClosedNow}
+        />
+      )}
 
       {priceError && <p className="status-error">현재가 조회 실패: {priceError}</p>}
 
@@ -196,32 +248,9 @@ export default function HoldingsPage({ profileId, holdings, onChanged }: Props):
               </tr>
             </thead>
             <tbody>
-              {grouped[broker].map((h) => {
-                const quote = quotes[h.ticker]
-                const priceKnown = quote && quote.currency === h.currency
-                const pl = priceKnown ? (quote.lastPrice - h.avgPrice) * h.quantity : null
-                return (
-                  <tr key={h.id}>
-                    <td>
-                      {h.name} <span className="muted">({h.ticker})</span>
-                    </td>
-                    <td>{h.quantity.toLocaleString()}</td>
-                    <td>
-                      {h.avgPrice.toLocaleString()} {h.currency}
-                    </td>
-                    <td>{(h.quantity * h.avgPrice).toLocaleString()}</td>
-                    <td>{quote ? `${quote.lastPrice.toLocaleString()} ${quote.currency}` : '—'}</td>
-                    <td className={pl === null ? '' : pl >= 0 ? 'num-positive' : 'num-negative'}>
-                      {pl === null ? '—' : `${pl >= 0 ? '+' : ''}${Math.round(pl).toLocaleString()}`}
-                    </td>
-                    <td>
-                      <button className="link-danger" onClick={() => handleDelete(h.id)}>
-                        삭제
-                      </button>
-                    </td>
-                  </tr>
-                )
-              })}
+              {grouped[broker].map((h) => (
+                <HoldingRow key={h.id} holding={h} quote={quotes[h.ticker]} onDelete={handleDelete} />
+              ))}
             </tbody>
           </table>
         </section>
