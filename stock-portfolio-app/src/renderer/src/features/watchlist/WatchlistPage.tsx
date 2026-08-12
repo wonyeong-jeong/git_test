@@ -1,6 +1,16 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import type { Quote, WatchlistItem } from '../../types'
 import StockSearchInput, { type StockOption } from '../../components/StockSearchInput'
+
+const AUTO_REFRESH_INTERVAL_OPTIONS = [
+  { label: '15초마다', seconds: 15 },
+  { label: '30초마다', seconds: 30 },
+  { label: '1분마다', seconds: 60 },
+  { label: '5분마다', seconds: 300 }
+]
+
+/** 자격증명 오류 등으로 계속 실패할 때 API를 무한히 두드리지 않도록 자동 갱신을 멈추는 기준 */
+const MAX_CONSECUTIVE_FAILURES = 3
 
 interface Props {
   profileId: string
@@ -14,6 +24,18 @@ export default function WatchlistPage({ profileId }: Props): JSX.Element {
   const [quotes, setQuotes] = useState<Record<string, Quote>>({})
   const [priceStatus, setPriceStatus] = useState<'idle' | 'loading' | 'error'>('idle')
   const [priceError, setPriceError] = useState<string | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [autoRefresh, setAutoRefresh] = useState(false)
+  const [intervalSeconds, setIntervalSeconds] = useState(30)
+
+  // 인터벌 콜백 안에서 최신 상태를 참조하기 위한 ref들 (state를 그대로 쓰면 클로저가 오래된 값을 가짐)
+  const inFlightRef = useRef(false)
+  const failureCountRef = useRef(0)
+  const autoRefreshRef = useRef(autoRefresh)
+
+  useEffect(() => {
+    autoRefreshRef.current = autoRefresh
+  }, [autoRefresh])
 
   async function refresh(): Promise<void> {
     setItems(await window.api.watchlist.list(profileId))
@@ -35,7 +57,8 @@ export default function WatchlistPage({ profileId }: Props): JSX.Element {
   }
 
   async function handleRefreshPrices(): Promise<void> {
-    if (items.length === 0) return
+    if (items.length === 0 || inFlightRef.current) return
+    inFlightRef.current = true
     setPriceStatus('loading')
     setPriceError(null)
     try {
@@ -44,11 +67,33 @@ export default function WatchlistPage({ profileId }: Props): JSX.Element {
       for (const q of results) map[q.symbol] = q
       setQuotes(map)
       setPriceStatus('idle')
+      setLastUpdated(new Date())
+      failureCountRef.current = 0
     } catch (err) {
+      const message = err instanceof Error ? err.message : String(err)
+      failureCountRef.current += 1
       setPriceStatus('error')
-      setPriceError(err instanceof Error ? err.message : String(err))
+      if (autoRefreshRef.current && failureCountRef.current >= MAX_CONSECUTIVE_FAILURES) {
+        setAutoRefresh(false)
+        setPriceError(`${message} (자동 갱신 ${MAX_CONSECUTIVE_FAILURES}회 연속 실패로 중지됨)`)
+      } else {
+        setPriceError(message)
+      }
+    } finally {
+      inFlightRef.current = false
     }
   }
+
+  useEffect(() => {
+    if (!autoRefresh || items.length === 0) return
+    const id = setInterval(() => {
+      handleRefreshPrices()
+    }, intervalSeconds * 1000)
+    return () => clearInterval(id)
+    // handleRefreshPrices는 매 렌더마다 새로 만들어지지만 items/profileId 변화 시에만
+    // 인터벌을 다시 걸면 충분하므로 의도적으로 의존성에서 제외한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRefresh, intervalSeconds, items])
 
   return (
     <div>
@@ -58,6 +103,34 @@ export default function WatchlistPage({ profileId }: Props): JSX.Element {
           {priceStatus === 'loading' ? '현재가 불러오는 중...' : '현재가 새로고침'}
         </button>
       </div>
+
+      {items.length > 0 && (
+        <div className="watchlist-controls">
+          <label>
+            <input
+              type="checkbox"
+              checked={autoRefresh}
+              onChange={(e) => {
+                failureCountRef.current = 0
+                setAutoRefresh(e.target.checked)
+              }}
+            />
+            자동 갱신
+          </label>
+          <select
+            value={intervalSeconds}
+            disabled={!autoRefresh}
+            onChange={(e) => setIntervalSeconds(Number(e.target.value))}
+          >
+            {AUTO_REFRESH_INTERVAL_OPTIONS.map((opt) => (
+              <option key={opt.seconds} value={opt.seconds}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+          {lastUpdated && <span>마지막 갱신 {lastUpdated.toLocaleTimeString()}</span>}
+        </div>
+      )}
 
       {priceError && <p className="status-error">현재가 조회 실패: {priceError}</p>}
 
