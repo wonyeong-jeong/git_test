@@ -9,21 +9,23 @@ import { useFlashOnChange } from '../../hooks/useFlashOnChange'
 
 interface Props {
   profileId: string
+  onOpenDetail: (item: WatchlistItem) => void
 }
 
 interface RowProps {
   item: WatchlistItem
   quote?: Quote
   onDelete: (id: string) => void
+  onOpenDetail: (item: WatchlistItem) => void
 }
 
 /** 행을 별도 컴포넌트로 분리한 이유: useFlashOnChange 같은 훅은 각 행마다 독립적으로 상태를
  * 가져야 하는데, 부모의 .map() 콜백 안에서 직접 훅을 호출하면 Rules of Hooks를 어기게 된다. */
-function WatchlistRow({ item, quote, onDelete }: RowProps): JSX.Element {
+function WatchlistRow({ item, quote, onDelete, onOpenDetail }: RowProps): JSX.Element {
   const flash = useFlashOnChange(quote?.lastPrice)
 
   return (
-    <tr>
+    <tr className="clickable-row" onClick={() => onOpenDetail(item)}>
       <td>
         <span className="stock-name-cell">
           <StockAvatar ticker={item.ticker} name={item.name} />
@@ -34,7 +36,13 @@ function WatchlistRow({ item, quote, onDelete }: RowProps): JSX.Element {
         {quote ? `${quote.lastPrice.toLocaleString()} ${quote.currency}` : '—'}
       </td>
       <td>
-        <button className="link-danger" onClick={() => onDelete(item.id)}>
+        <button
+          className="link-danger"
+          onClick={(e) => {
+            e.stopPropagation()
+            onDelete(item.id)
+          }}
+        >
           삭제
         </button>
       </td>
@@ -42,7 +50,7 @@ function WatchlistRow({ item, quote, onDelete }: RowProps): JSX.Element {
   )
 }
 
-export default function WatchlistPage({ profileId }: Props): JSX.Element {
+export default function WatchlistPage({ profileId, onOpenDetail }: Props): JSX.Element {
   const [items, setItems] = useState<WatchlistItem[]>([])
   const [manualEntry, setManualEntry] = useState(false)
   const [manualTicker, setManualTicker] = useState('')
@@ -155,7 +163,13 @@ export default function WatchlistPage({ profileId }: Props): JSX.Element {
           </thead>
           <tbody>
             {items.map((item) => (
-              <WatchlistRow key={item.id} item={item} quote={quotes[item.ticker]} onDelete={handleDelete} />
+              <WatchlistRow
+                key={item.id}
+                item={item}
+                quote={quotes[item.ticker]}
+                onDelete={handleDelete}
+                onOpenDetail={onOpenDetail}
+              />
             ))}
           </tbody>
         </table>
