@@ -28,6 +28,9 @@ export interface Holding {
 
 export type ContributionFrequency = 'MONTHLY' | 'WEEKLY'
 
+/** 회당 적립을 금액으로 정할지, 수량(소수점 매수 포함)으로 정할지 */
+export type ContributionValueType = 'AMOUNT' | 'QUANTITY'
+
 export interface ContributionPlan {
   id: string
   profileId: string
@@ -35,6 +38,9 @@ export interface ContributionPlan {
   ticker: string
   name: string
   frequency: ContributionFrequency
+  /** 예전 기록엔 없을 수 있음 — main 프로세스 store.ts에서 읽을 때 'AMOUNT'로 기본값 처리됨 */
+  contributionType: ContributionValueType
+  /** contributionType이 'AMOUNT'면 금액(원/달러), 'QUANTITY'면 수량(소수점 가능) */
   amount: number
   dayOfMonth?: number
   startDate: string

@@ -11,7 +11,7 @@ import {
   YAxis
 } from 'recharts'
 import type { ContributionPlan, DividendRecord, Holding } from '../../types'
-import { projectContributionGrowth } from '../../domain/compound'
+import { projectPlanContributionGrowth } from '../../domain/compound'
 import {
   aggregateDividendProjections,
   groupDividendsByPeriod,
@@ -100,9 +100,11 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
       .map((plan) => {
         const holding = holdings.find((h) => h.id === plan.holdingId)
         if (!holding) return null
-        const growth = projectContributionGrowth({
+        const growth = projectPlanContributionGrowth({
+          contributionType: plan.contributionType,
+          value: plan.amount * (amountMultiplierPercent / 100),
+          referencePrice: holding.avgPrice,
           initialPrincipal: holding.quantity * holding.avgPrice,
-          monthlyContribution: plan.amount * (amountMultiplierPercent / 100),
           annualReturnRatePercent: plan.assumedAnnualReturnRate,
           months: monthsHorizon
         })

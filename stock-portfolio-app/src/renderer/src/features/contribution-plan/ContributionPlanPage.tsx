@@ -9,19 +9,23 @@ import {
   XAxis,
   YAxis
 } from 'recharts'
-import type { ContributionFrequency, ContributionPlan, Holding } from '../../types'
-import { projectContributionGrowth, summarizeExpectedReturn } from '../../domain/compound'
+import type { ContributionFrequency, ContributionPlan, ContributionValueType, Holding } from '../../types'
+import { projectPlanContributionGrowth, summarizeExpectedReturn } from '../../domain/compound'
 import { generateScheduleEvents } from '../../domain/contributionSchedule'
 import { DEFAULT_TAX_ASSUMPTIONS, calculateCapitalGainsTax, type Market } from '../../domain/tax'
+import { formatQuantity } from '../../utils/format'
 
 interface Props {
   profileId: string
   holdings: Holding[]
 }
 
+const CONTRIBUTION_TYPE_LABELS: Record<ContributionValueType, string> = { AMOUNT: '금액', QUANTITY: '수량' }
+
 const emptyForm = {
   holdingId: '',
   frequency: 'MONTHLY' as ContributionFrequency,
+  contributionType: 'AMOUNT' as ContributionValueType,
   amount: '300000',
   dayOfMonth: '1',
   startDate: new Date().toISOString().slice(0, 10),
@@ -66,6 +70,7 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
       ticker: holding.ticker,
       name: holding.name,
       frequency: form.frequency,
+      contributionType: form.contributionType,
       amount: Number(form.amount),
       dayOfMonth: form.frequency === 'MONTHLY' ? Number(form.dayOfMonth) : undefined,
       startDate: form.startDate,
@@ -90,11 +95,13 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
   const projection = useMemo(() => {
     if (!selectedPlan || !selectedHolding) return null
     const initialPrincipal = selectedHolding.quantity * selectedHolding.avgPrice
-    const monthlyContribution = amountOverride ?? selectedPlan.amount
+    const value = amountOverride ?? selectedPlan.amount
     const annualReturnRatePercent = returnOverride ?? selectedPlan.assumedAnnualReturnRate
-    const points = projectContributionGrowth({
+    const points = projectPlanContributionGrowth({
+      contributionType: selectedPlan.contributionType,
+      value,
+      referencePrice: selectedHolding.avgPrice,
       initialPrincipal,
-      monthlyContribution,
       annualReturnRatePercent,
       months: monthsHorizon
     })
@@ -159,8 +166,29 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
           </select>
         </label>
         <label>
-          회당 금액
-          <input type="number" min="0" value={form.amount} onChange={(e) => setForm({ ...form, amount: e.target.value })} />
+          적립 방식
+          <div className="period-toggle" style={{ marginBottom: 0 }}>
+            {(Object.keys(CONTRIBUTION_TYPE_LABELS) as ContributionValueType[]).map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={form.contributionType === t ? 'active' : ''}
+                onClick={() => setForm({ ...form, contributionType: t })}
+              >
+                {CONTRIBUTION_TYPE_LABELS[t]}
+              </button>
+            ))}
+          </div>
+        </label>
+        <label>
+          {form.contributionType === 'QUANTITY' ? '회당 매수 수량 (소수점 가능)' : '회당 금액'}
+          <input
+            type="number"
+            min="0"
+            step="any"
+            value={form.amount}
+            onChange={(e) => setForm({ ...form, amount: e.target.value })}
+          />
         </label>
         {form.frequency === 'MONTHLY' && (
           <label>
@@ -224,7 +252,9 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
             >
               <strong>{p.name}</strong>
               <span className="muted">
-                {p.frequency === 'MONTHLY' ? '매월' : '매주'} {p.amount.toLocaleString()}원 · 가정수익률 {p.assumedAnnualReturnRate}%
+                {p.frequency === 'MONTHLY' ? '매월' : '매주'}{' '}
+                {p.contributionType === 'QUANTITY' ? `${formatQuantity(p.amount)}주` : `${p.amount.toLocaleString()}원`} ·
+                가정수익률 {p.assumedAnnualReturnRate}%
               </span>
               <span className="link-danger" onClick={(e) => { e.stopPropagation(); handleDelete(p.id) }}>
                 삭제
@@ -250,12 +280,19 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                 />
               </label>
               <label>
-                월 적립액: {(amountOverride ?? selectedPlan.amount).toLocaleString()}원
+                {selectedPlan.contributionType === 'QUANTITY' ? '회당 매수 수량' : '회당 적립액'}:{' '}
+                {selectedPlan.contributionType === 'QUANTITY'
+                  ? `${formatQuantity(amountOverride ?? selectedPlan.amount)}주`
+                  : `${(amountOverride ?? selectedPlan.amount).toLocaleString()}원`}
                 <input
                   type="range"
                   min={0}
-                  max={Math.max(selectedPlan.amount * 5, 1_000_000)}
-                  step={10000}
+                  max={
+                    selectedPlan.contributionType === 'QUANTITY'
+                      ? Math.max(selectedPlan.amount * 5, 10)
+                      : Math.max(selectedPlan.amount * 5, 1_000_000)
+                  }
+                  step={selectedPlan.contributionType === 'QUANTITY' ? 0.1 : 10000}
                   value={amountOverride ?? selectedPlan.amount}
                   onChange={(e) => setAmountOverride(Number(e.target.value))}
                 />
@@ -370,7 +407,11 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
               <ul className="upcoming-list">
                 {upcomingEvents.map((ev) => (
                   <li key={ev.date}>
-                    {ev.date} — {ev.plannedAmount.toLocaleString()}원 예정
+                    {ev.date} —{' '}
+                    {selectedPlan.contributionType === 'QUANTITY'
+                      ? `${formatQuantity(ev.plannedAmount)}주`
+                      : `${ev.plannedAmount.toLocaleString()}원`}{' '}
+                    예정
                   </li>
                 ))}
               </ul>

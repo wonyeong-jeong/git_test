@@ -12,11 +12,12 @@ import {
 import type { ContributionPlan, Holding } from '../../types'
 import {
   aggregateProjections,
-  projectContributionGrowth,
+  projectPlanContributionGrowth,
   summarizeExpectedReturn,
   type CompoundProjectionPoint
 } from '../../domain/compound'
 import { calculateCapitalGainsTax, type Market } from '../../domain/tax'
+import { formatQuantity } from '../../utils/format'
 
 interface Props {
   profileId: string
@@ -27,7 +28,8 @@ interface PlanRow {
   plan: ContributionPlan
   holding: Holding
   market: Market
-  monthlyContribution: number
+  /** contributionType이 AMOUNT면 회당 금액, QUANTITY면 회당 수량(배율 적용 후) */
+  scaledValue: number
   points: CompoundProjectionPoint[]
 }
 
@@ -47,14 +49,16 @@ export default function PortfolioSimulationPage({ profileId, holdings }: Props):
         const holding = holdings.find((h) => h.id === plan.holdingId)
         if (!holding) return null
         const market: Market = holding.currency === 'USD' ? 'OVERSEAS' : 'DOMESTIC'
-        const monthlyContribution = plan.amount * (amountMultiplierPercent / 100)
-        const points = projectContributionGrowth({
+        const scaledValue = plan.amount * (amountMultiplierPercent / 100)
+        const points = projectPlanContributionGrowth({
+          contributionType: plan.contributionType,
+          value: scaledValue,
+          referencePrice: holding.avgPrice,
           initialPrincipal: holding.quantity * holding.avgPrice,
-          monthlyContribution,
           annualReturnRatePercent: plan.assumedAnnualReturnRate,
           months: monthsHorizon
         })
-        return { plan, holding, market, monthlyContribution, points }
+        return { plan, holding, market, scaledValue, points }
       })
       .filter((r): r is PlanRow => r !== null)
   }, [plans, holdings, monthsHorizon, amountMultiplierPercent])
@@ -192,7 +196,7 @@ export default function PortfolioSimulationPage({ profileId, holdings }: Props):
                 <tr>
                   <th>종목</th>
                   <th>시장</th>
-                  <th>조정 후 월 적립액</th>
+                  <th>조정 후 회당 적립</th>
                   <th>세전 최종 평가금액</th>
                   {showAfterTax && <th>세후 최종 평가금액</th>}
                 </tr>
@@ -204,7 +208,11 @@ export default function PortfolioSimulationPage({ profileId, holdings }: Props):
                       {r.holding.name} <span className="muted">({r.holding.ticker})</span>
                     </td>
                     <td>{r.market === 'DOMESTIC' ? '국내' : '해외'}</td>
-                    <td>{Math.round(r.monthlyContribution).toLocaleString()}원</td>
+                    <td>
+                      {r.plan.contributionType === 'QUANTITY'
+                        ? `${formatQuantity(r.scaledValue)}주`
+                        : `${Math.round(r.scaledValue).toLocaleString()}원`}
+                    </td>
                     <td>{Math.round(r.last.value).toLocaleString()}원</td>
                     {showAfterTax && <td>{Math.round(r.tax.netValue).toLocaleString()}원</td>}
                   </tr>

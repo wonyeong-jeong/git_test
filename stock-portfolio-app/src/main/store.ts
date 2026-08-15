@@ -51,7 +51,8 @@ function normalizeProfileData(data: ProfileData): ProfileData {
     manualPurchases: (data.manualPurchases ?? []).map((p) => ({ ...p, side: p.side ?? 'BUY' })),
     contributionPlans: (data.contributionPlans ?? []).map((p) => ({
       ...p,
-      assumedDividendYieldPercent: p.assumedDividendYieldPercent ?? 0
+      assumedDividendYieldPercent: p.assumedDividendYieldPercent ?? 0,
+      contributionType: p.contributionType ?? 'AMOUNT'
     })),
     dividendRecords: data.dividendRecords ?? [],
     watchlist: data.watchlist ?? [],

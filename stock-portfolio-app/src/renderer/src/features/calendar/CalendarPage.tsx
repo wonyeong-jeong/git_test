@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ContributionPlan, DividendRecord, Holding, ManualPurchase } from '../../types'
 import { generateScheduleEvents } from '../../domain/contributionSchedule'
 import { buildMonthGrid, groupEventsByDate, type CalendarEvent, type CalendarEventType } from '../../domain/calendar'
+import { formatQuantity } from '../../utils/format'
 
 interface Props {
   profileId: string
@@ -60,19 +61,33 @@ export default function CalendarPage({ profileId, holdings }: Props): JSX.Elemen
 
     // 적립식 계획의 "예정" 회차. 계획 시작일이 오래됐을 수 있어 넉넉히 36개월치를 생성해서
     // 이번 달을 포함할 가능성을 높인다 — 실제 표시는 어차피 현재 보고 있는 달의 날짜만 쓴다.
+    // 수량 기준 계획은 generateScheduleEvents가 반환하는 plannedAmount를 "수량"으로 재해석해서,
+    // 보유종목 평단가로 대략적인 금액을 환산해 CalendarEvent.amount(항상 금액)에 채운다.
     const scheduled: CalendarEvent[] = plans
       .filter((p) => p.active)
-      .flatMap((p) =>
-        generateScheduleEvents(
+      .flatMap((p) => {
+        const holding = holdings.find((h) => h.id === p.holdingId)
+        return generateScheduleEvents(
           { frequency: p.frequency, amount: p.amount, startDate: p.startDate, endDate: p.endDate, dayOfMonth: p.dayOfMonth },
           36
-        ).map((ev) => ({
-          date: ev.date,
-          type: 'SCHEDULED_CONTRIBUTION' as const,
-          label: `${p.name} 적립 예정`,
-          amount: ev.plannedAmount
-        }))
-      )
+        ).map((ev) => {
+          if (p.contributionType === 'QUANTITY') {
+            const estimatedAmount = ev.plannedAmount * (holding?.avgPrice ?? 0)
+            return {
+              date: ev.date,
+              type: 'SCHEDULED_CONTRIBUTION' as const,
+              label: `${p.name} 적립 예정 (${formatQuantity(ev.plannedAmount)}주, 평단가 기준 추정금액)`,
+              amount: estimatedAmount
+            }
+          }
+          return {
+            date: ev.date,
+            type: 'SCHEDULED_CONTRIBUTION' as const,
+            label: `${p.name} 적립 예정`,
+            amount: ev.plannedAmount
+          }
+        })
+      })
 
     return [...buySell, ...dividendEvents, ...scheduled]
     // eslint-disable-next-line react-hooks/exhaustive-deps
