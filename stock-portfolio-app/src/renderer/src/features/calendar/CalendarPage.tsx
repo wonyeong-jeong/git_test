@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { ContributionPlan, DividendRecord, Holding, ManualPurchase } from '../../types'
 import { generateScheduleEvents } from '../../domain/contributionSchedule'
 import { buildMonthGrid, groupEventsByDate, type CalendarEvent, type CalendarEventType } from '../../domain/calendar'
-import { formatQuantity } from '../../utils/format'
+import { formatMoney, formatQuantity } from '../../utils/format'
 
 interface Props {
   profileId: string
@@ -44,19 +44,25 @@ export default function CalendarPage({ profileId, holdings }: Props): JSX.Elemen
     return h ? `${h.name}(${h.ticker})` : '(삭제된 종목)'
   }
 
+  function holdingCurrency(holdingId: string): string {
+    return holdings.find((h) => h.id === holdingId)?.currency ?? 'KRW'
+  }
+
   const events = useMemo<CalendarEvent[]>(() => {
     const buySell: CalendarEvent[] = purchases.map((p) => ({
       date: p.date,
       type: p.side ?? 'BUY',
       label: `${holdingLabel(p.holdingId)} ${p.side === 'SELL' ? '매도' : '매수'} ${p.quantity.toLocaleString()}주`,
-      amount: p.quantity * p.price
+      amount: p.quantity * p.price,
+      currency: holdingCurrency(p.holdingId)
     }))
 
     const dividendEvents: CalendarEvent[] = dividends.map((d) => ({
       date: d.date,
       type: 'DIVIDEND',
       label: `${holdingLabel(d.holdingId)} 배당`,
-      amount: d.amount
+      amount: d.amount,
+      currency: holdingCurrency(d.holdingId)
     }))
 
     // 적립식 계획의 "예정" 회차. 계획 시작일이 오래됐을 수 있어 넉넉히 36개월치를 생성해서
@@ -71,20 +77,23 @@ export default function CalendarPage({ profileId, holdings }: Props): JSX.Elemen
           { frequency: p.frequency, amount: p.amount, startDate: p.startDate, endDate: p.endDate, dayOfMonth: p.dayOfMonth },
           36
         ).map((ev) => {
+          const currency = holdingCurrency(p.holdingId)
           if (p.contributionType === 'QUANTITY') {
             const estimatedAmount = ev.plannedAmount * (holding?.avgPrice ?? 0)
             return {
               date: ev.date,
               type: 'SCHEDULED_CONTRIBUTION' as const,
               label: `${p.name} 적립 예정 (${formatQuantity(ev.plannedAmount)}주, 평단가 기준 추정금액)`,
-              amount: estimatedAmount
+              amount: estimatedAmount,
+              currency
             }
           }
           return {
             date: ev.date,
             type: 'SCHEDULED_CONTRIBUTION' as const,
             label: `${p.name} 적립 예정`,
-            amount: ev.plannedAmount
+            amount: ev.plannedAmount,
+            currency
           }
         })
       })
@@ -203,7 +212,7 @@ export default function CalendarPage({ profileId, holdings }: Props): JSX.Elemen
             {selectedEvents.map((ev, i) => (
               <li key={i}>
                 <span className={`cal-dot ${EVENT_TYPE_META[ev.type].dotClass}`} /> {ev.label} —{' '}
-                {Math.round(ev.amount).toLocaleString()}원
+                {formatMoney(ev.amount, ev.currency)}
               </li>
             ))}
           </ul>

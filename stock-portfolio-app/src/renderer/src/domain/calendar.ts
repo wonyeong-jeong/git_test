@@ -32,6 +32,8 @@ export interface CalendarEvent {
   type: CalendarEventType
   label: string
   amount: number
+  /** amount가 어느 통화인지 (KRW/USD 등) — 화면에서 하드코딩된 "원" 대신 이 값을 붙여야 한다 */
+  currency: string
 }
 
 export function groupEventsByDate(events: CalendarEvent[]): Record<string, CalendarEvent[]> {

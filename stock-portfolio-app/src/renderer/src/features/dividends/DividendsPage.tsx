@@ -20,6 +20,7 @@ import {
   type DividendGranularity
 } from '../../domain/dividend'
 import { calculateDividendTax } from '../../domain/tax'
+import { formatAxisTick, formatMoney } from '../../utils/format'
 
 const GRANULARITY_LABELS: Record<DividendGranularity, string> = { WEEK: '주간', MONTH: '월간', YEAR: '연간' }
 /** 구간이 너무 많아지면 막대그래프가 읽기 어려워지므로 최근 N개만 보여준다 */
@@ -41,6 +42,13 @@ function startOfThisYear(): string {
   return `${new Date().getFullYear()}-01-01`
 }
 
+interface DividendTotals {
+  allTimeGross: number
+  allTimeNet: number
+  ytdGross: number
+  ytdNet: number
+}
+
 export default function DividendsPage({ profileId, holdings }: Props): JSX.Element {
   const [records, setRecords] = useState<DividendRecord[]>([])
   const [plans, setPlans] = useState<ContributionPlan[]>([])
@@ -57,6 +65,7 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
   useEffect(() => {
     refreshRecords()
     window.api.contributionPlans.list(profileId).then(setPlans)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId])
 
   async function handleSubmit(e: FormEvent): Promise<void> {
@@ -77,50 +86,83 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
     refreshRecords()
   }
 
-  const totals = useMemo(() => {
-    const allTime = sumDividendRecords(records)
-    const ytd = sumDividendRecords(records, startOfThisYear())
-    return {
-      allTimeGross: allTime,
-      allTimeNet: calculateDividendTax(allTime).netDividend,
-      ytdGross: ytd,
-      ytdNet: calculateDividendTax(ytd).netDividend
-    }
-  }, [records])
-
-  const periodBuckets = useMemo(
-    () => groupDividendsByPeriod(records, granularity).slice(-MAX_BUCKETS_SHOWN),
-    [records, granularity]
-  )
-
-  const dividendPlans = plans.filter((p) => p.assumedDividendYieldPercent > 0)
-
-  const dividendProjection = useMemo(() => {
-    const perPlan = dividendPlans
-      .map((plan) => {
-        const holding = holdings.find((h) => h.id === plan.holdingId)
-        if (!holding) return null
-        const growth = projectPlanContributionGrowth({
-          contributionType: plan.contributionType,
-          frequency: plan.frequency,
-          value: plan.amount * (amountMultiplierPercent / 100),
-          referencePrice: holding.avgPrice,
-          initialPrincipal: holding.quantity * holding.avgPrice,
-          annualReturnRatePercent: plan.assumedAnnualReturnRate,
-          months: monthsHorizon
-        })
-        return projectExpectedDividends(growth, plan.assumedDividendYieldPercent)
-      })
-      .filter((p): p is ReturnType<typeof projectExpectedDividends> => p !== null)
-    return aggregateDividendProjections(perPlan)
-  }, [dividendPlans, holdings, monthsHorizon, amountMultiplierPercent])
-
-  const expectedAtHorizon = dividendProjection[dividendProjection.length - 1]?.expectedAnnualDividend ?? 0
-
   function holdingName(holdingId: string): string {
     const h = holdings.find((x) => x.id === holdingId)
     return h ? `${h.name} (${h.ticker})` : '(삭제된 종목)'
   }
+
+  function holdingCurrency(holdingId: string): string {
+    return holdings.find((h) => h.id === holdingId)?.currency ?? 'KRW'
+  }
+
+  // KRW와 USD 배당을 그냥 더하면 안 되므로(환율 미지원) 전부 통화별로 따로 계산한다 —
+  // 예전에는 전 종목 배당을 통화 구분 없이 그냥 더해서 "원"이라고만 표시했다.
+  const currenciesWithDividends = useMemo(
+    () => [...new Set(records.map((r) => holdingCurrency(r.holdingId)))],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [records, holdings]
+  )
+
+  const totalsByCurrency = useMemo(() => {
+    const result: Record<string, DividendTotals> = {}
+    for (const currency of currenciesWithDividends) {
+      const currencyRecords = records.filter((r) => holdingCurrency(r.holdingId) === currency)
+      const allTime = sumDividendRecords(currencyRecords)
+      const ytd = sumDividendRecords(currencyRecords, startOfThisYear())
+      result[currency] = {
+        allTimeGross: allTime,
+        allTimeNet: calculateDividendTax(allTime).netDividend,
+        ytdGross: ytd,
+        ytdNet: calculateDividendTax(ytd).netDividend
+      }
+    }
+    return result
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records, holdings, currenciesWithDividends])
+
+  const periodBucketsByCurrency = useMemo(() => {
+    const result: Record<string, ReturnType<typeof groupDividendsByPeriod>> = {}
+    for (const currency of currenciesWithDividends) {
+      const currencyRecords = records.filter((r) => holdingCurrency(r.holdingId) === currency)
+      result[currency] = groupDividendsByPeriod(currencyRecords, granularity).slice(-MAX_BUCKETS_SHOWN)
+    }
+    return result
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records, holdings, granularity, currenciesWithDividends])
+
+  const dividendPlans = plans.filter((p) => p.assumedDividendYieldPercent > 0)
+
+  const currenciesWithDividendPlans = useMemo(
+    () => [...new Set(dividendPlans.map((p) => holdingCurrency(p.holdingId)))],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [dividendPlans, holdings]
+  )
+
+  const dividendProjectionByCurrency = useMemo(() => {
+    const result: Record<string, ReturnType<typeof aggregateDividendProjections>> = {}
+    for (const currency of currenciesWithDividendPlans) {
+      const perPlan = dividendPlans
+        .filter((plan) => holdingCurrency(plan.holdingId) === currency)
+        .map((plan) => {
+          const holding = holdings.find((h) => h.id === plan.holdingId)
+          if (!holding) return null
+          const growth = projectPlanContributionGrowth({
+            contributionType: plan.contributionType,
+            frequency: plan.frequency,
+            value: plan.amount * (amountMultiplierPercent / 100),
+            referencePrice: holding.avgPrice,
+            initialPrincipal: holding.quantity * holding.avgPrice,
+            annualReturnRatePercent: plan.assumedAnnualReturnRate,
+            months: monthsHorizon
+          })
+          return projectExpectedDividends(growth, plan.assumedDividendYieldPercent)
+        })
+        .filter((p): p is ReturnType<typeof projectExpectedDividends> => p !== null)
+      result[currency] = aggregateDividendProjections(perPlan)
+    }
+    return result
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dividendPlans, holdings, monthsHorizon, amountMultiplierPercent, currenciesWithDividendPlans])
 
   return (
     <div>
@@ -128,24 +170,35 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
         <h1>배당</h1>
       </div>
 
-      <div className="summary-cards" style={{ marginBottom: 24 }}>
-        <div className="summary-card">
-          <span className="label">올해 배당금 (세전)</span>
-          <span className="value">{Math.round(totals.ytdGross).toLocaleString()}원</span>
-        </div>
-        <div className="summary-card highlight">
-          <span className="label">올해 배당금 (세후)</span>
-          <span className="value">{Math.round(totals.ytdNet).toLocaleString()}원</span>
-        </div>
-        <div className="summary-card">
-          <span className="label">누적 배당금 (세전)</span>
-          <span className="value">{Math.round(totals.allTimeGross).toLocaleString()}원</span>
-        </div>
-        <div className="summary-card">
-          <span className="label">누적 배당금 (세후)</span>
-          <span className="value">{Math.round(totals.allTimeNet).toLocaleString()}원</span>
-        </div>
-      </div>
+      {currenciesWithDividends.length > 1 && (
+        <p className="muted small" style={{ marginTop: -8 }}>
+          보유 통화가 여러 개라(KRW/USD) 환율 없이 더하지 않고 통화별로 따로 집계해서 보여드립니다.
+        </p>
+      )}
+
+      {currenciesWithDividends.map((currency) => {
+        const t = totalsByCurrency[currency]
+        return (
+          <div key={currency} className="summary-cards" style={{ marginBottom: 24 }}>
+            <div className="summary-card">
+              <span className="label">{currency} 올해 배당금 (세전)</span>
+              <span className="value">{formatMoney(t.ytdGross, currency)}</span>
+            </div>
+            <div className="summary-card highlight">
+              <span className="label">{currency} 올해 배당금 (세후)</span>
+              <span className="value">{formatMoney(t.ytdNet, currency)}</span>
+            </div>
+            <div className="summary-card">
+              <span className="label">{currency} 누적 배당금 (세전)</span>
+              <span className="value">{formatMoney(t.allTimeGross, currency)}</span>
+            </div>
+            <div className="summary-card">
+              <span className="label">{currency} 누적 배당금 (세후)</span>
+              <span className="value">{formatMoney(t.allTimeNet, currency)}</span>
+            </div>
+          </div>
+        )
+      })}
 
       <form className="card form-grid" onSubmit={handleSubmit}>
         <label>
@@ -202,7 +255,7 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
                 <tr key={r.id}>
                   <td>{r.date}</td>
                   <td>{holdingName(r.holdingId)}</td>
-                  <td>{r.amount.toLocaleString()}원</td>
+                  <td>{formatMoney(r.amount, holdingCurrency(r.holdingId))}</td>
                   <td className="muted">{r.note ?? '—'}</td>
                   <td>
                     <button className="link-danger" onClick={() => handleDelete(r.id)}>
@@ -233,19 +286,27 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
                 </button>
               ))}
             </div>
-            <div style={{ width: '100%', height: 260 }}>
-              <ResponsiveContainer>
-                <BarChart data={periodBuckets}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} />
-                  <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                  <YAxis tickFormatter={(v) => `${Math.round(v / 10000)}만`} />
-                  <Tooltip formatter={(v: number) => `${Math.round(v).toLocaleString()}원`} />
-                  <Bar dataKey="total" name="배당 수익" fill="#3182F6" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
+            {currenciesWithDividends.map((currency) => {
+              const buckets = periodBucketsByCurrency[currency]
+              return (
+                <div key={currency} style={{ marginBottom: 16 }}>
+                  {currenciesWithDividends.length > 1 && <p className="muted small">{currency}</p>}
+                  <div style={{ width: '100%', height: 260 }}>
+                    <ResponsiveContainer>
+                      <BarChart data={buckets}>
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} />
+                        <XAxis dataKey="label" tick={{ fontSize: 12 }} />
+                        <YAxis tickFormatter={(v) => formatAxisTick(v, currency)} />
+                        <Tooltip formatter={(v: number) => formatMoney(v, currency)} />
+                        <Bar dataKey="total" name="배당 수익" fill="#3182F6" radius={[4, 4, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )
+            })}
             <p className="muted small">
-              최근 {Math.min(periodBuckets.length, MAX_BUCKETS_SHOWN)}개 구간만 표시합니다(세전 기준).
+              최근 {MAX_BUCKETS_SHOWN}개 구간만 표시합니다(세전 기준).
             </p>
           </>
         )}
@@ -284,33 +345,49 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
               </label>
             </div>
 
-            <div className="summary-cards">
-              <div className="summary-card highlight">
-                <span className="label">{monthsHorizon}개월 후 예상 연간 배당금 (세전)</span>
-                <span className="value">{Math.round(expectedAtHorizon).toLocaleString()}원</span>
-              </div>
-              <div className="summary-card">
-                <span className="label">세후 환산</span>
-                <span className="value">
-                  {Math.round(calculateDividendTax(expectedAtHorizon).netDividend).toLocaleString()}원
-                </span>
-              </div>
-            </div>
+            {currenciesWithDividendPlans.map((currency) => {
+              const projection = dividendProjectionByCurrency[currency]
+              const expectedAtHorizon = projection[projection.length - 1]?.expectedAnnualDividend ?? 0
+              return (
+                <div key={currency} style={{ marginBottom: 20 }}>
+                  {currenciesWithDividendPlans.length > 1 && <h3 style={{ fontSize: 14 }}>{currency}</h3>}
+                  <div className="summary-cards">
+                    <div className="summary-card highlight">
+                      <span className="label">{monthsHorizon}개월 후 예상 연간 배당금 (세전)</span>
+                      <span className="value">{formatMoney(expectedAtHorizon, currency)}</span>
+                    </div>
+                    <div className="summary-card">
+                      <span className="label">세후 환산</span>
+                      <span className="value">
+                        {formatMoney(calculateDividendTax(expectedAtHorizon).netDividend, currency)}
+                      </span>
+                    </div>
+                  </div>
 
-            <div style={{ width: '100%', height: 280 }}>
-              <ResponsiveContainer>
-                <LineChart data={dividendProjection}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" label={{ value: '개월', position: 'insideBottomRight', offset: -5 }} />
-                  <YAxis tickFormatter={(v) => `${Math.round(v / 10000)}만`} />
-                  <Tooltip
-                    formatter={(v: number) => `${Math.round(v).toLocaleString()}원`}
-                    labelFormatter={(m) => `${m}개월차`}
-                  />
-                  <Line type="monotone" dataKey="expectedAnnualDividend" name="예상 연간 배당금" stroke="#3182F6" dot={false} strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
+                  <div style={{ width: '100%', height: 280 }}>
+                    <ResponsiveContainer>
+                      <LineChart data={projection}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="month" label={{ value: '개월', position: 'insideBottomRight', offset: -5 }} />
+                        <YAxis tickFormatter={(v) => formatAxisTick(v, currency)} />
+                        <Tooltip
+                          formatter={(v: number) => formatMoney(v, currency)}
+                          labelFormatter={(m) => `${m}개월차`}
+                        />
+                        <Line
+                          type="monotone"
+                          dataKey="expectedAnnualDividend"
+                          name="예상 연간 배당금"
+                          stroke="#3182F6"
+                          dot={false}
+                          strokeWidth={2}
+                        />
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              )
+            })}
             <p className="muted small">
               가정 배당수익률(현재 평가금액 기준)을 적립식 계획에서 입력한 종목만 반영됩니다. 실제 배당은 기업 정책에
               따라 달라질 수 있는 추정치입니다.

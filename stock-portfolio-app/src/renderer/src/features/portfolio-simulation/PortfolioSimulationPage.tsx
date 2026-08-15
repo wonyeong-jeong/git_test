@@ -17,7 +17,7 @@ import {
   type CompoundProjectionPoint
 } from '../../domain/compound'
 import { calculateCapitalGainsTax, type Market } from '../../domain/tax'
-import { formatQuantity } from '../../utils/format'
+import { formatAxisTick, formatMoney, formatQuantity } from '../../utils/format'
 
 interface Props {
   profileId: string
@@ -31,6 +31,17 @@ interface PlanRow {
   /** contributionType이 AMOUNT면 회당 금액, QUANTITY면 회당 수량(배율 적용 후) */
   scaledValue: number
   points: CompoundProjectionPoint[]
+}
+
+interface CurrencySummary {
+  aggregated: CompoundProjectionPoint[]
+  summary: ReturnType<typeof summarizeExpectedReturn>
+}
+
+interface AfterTaxTotals {
+  totalContributed: number
+  netValue: number
+  taxAmount: number
 }
 
 export default function PortfolioSimulationPage({ profileId, holdings }: Props): JSX.Element {
@@ -64,9 +75,6 @@ export default function PortfolioSimulationPage({ profileId, holdings }: Props):
       .filter((r): r is PlanRow => r !== null)
   }, [plans, holdings, monthsHorizon, amountMultiplierPercent])
 
-  const aggregated = useMemo(() => aggregateProjections(rows.map((r) => r.points)), [rows])
-  const summary = useMemo(() => (aggregated.length > 0 ? summarizeExpectedReturn(aggregated) : null), [aggregated])
-
   const rowsWithTax = useMemo(
     () =>
       rows.map((r) => {
@@ -81,17 +89,37 @@ export default function PortfolioSimulationPage({ profileId, holdings }: Props):
     [rows]
   )
 
-  const afterTaxTotals = useMemo(() => {
-    if (rowsWithTax.length === 0) return null
-    return rowsWithTax.reduce(
-      (acc, r) => ({
-        totalContributed: acc.totalContributed + r.last.contributed,
-        netValue: acc.netValue + r.tax.netValue,
-        taxAmount: acc.taxAmount + r.tax.taxAmount
-      }),
-      { totalContributed: 0, netValue: 0, taxAmount: 0 }
-    )
-  }, [rowsWithTax])
+  // KRW와 USD를 그냥 더하면 안 되므로(환율 미지원) 통화별로 따로 합산한다 — 예전에는 여기서
+  // 전부 하나로 더해버려서, 원화 종목과 달러 종목을 같이 적립하면 합계가 뒤죽박죽이었다.
+  const currencies = useMemo(() => [...new Set(rows.map((r) => r.holding.currency))], [rows])
+
+  const summaryByCurrency = useMemo(() => {
+    const result: Record<string, CurrencySummary> = {}
+    for (const currency of currencies) {
+      const aggregated = aggregateProjections(rows.filter((r) => r.holding.currency === currency).map((r) => r.points))
+      if (aggregated.length > 0) {
+        result[currency] = { aggregated, summary: summarizeExpectedReturn(aggregated) }
+      }
+    }
+    return result
+  }, [rows, currencies])
+
+  const afterTaxTotalsByCurrency = useMemo(() => {
+    const result: Record<string, AfterTaxTotals> = {}
+    for (const currency of currencies) {
+      const currencyRows = rowsWithTax.filter((r) => r.holding.currency === currency)
+      if (currencyRows.length === 0) continue
+      result[currency] = currencyRows.reduce(
+        (acc, r) => ({
+          totalContributed: acc.totalContributed + r.last.contributed,
+          netValue: acc.netValue + r.tax.netValue,
+          taxAmount: acc.taxAmount + r.tax.taxAmount
+        }),
+        { totalContributed: 0, netValue: 0, taxAmount: 0 }
+      )
+    }
+    return result
+  }, [rowsWithTax, currencies])
 
   return (
     <div>
@@ -105,7 +133,7 @@ export default function PortfolioSimulationPage({ profileId, holdings }: Props):
         </p>
       )}
 
-      {plans.length > 0 && summary && (
+      {plans.length > 0 && currencies.length > 0 && (
         <>
           <div className="card">
             <div className="sim-controls">
@@ -132,63 +160,80 @@ export default function PortfolioSimulationPage({ profileId, holdings }: Props):
               </label>
             </div>
 
-            <div className="summary-cards">
-              <div className="summary-card">
-                <span className="label">총 납입원금 (전 종목 합산)</span>
-                <span className="value">{Math.round(summary.totalContributed).toLocaleString()}원</span>
-              </div>
-              <div className="summary-card">
-                <span className="label">예상 평가금액</span>
-                <span className="value">{Math.round(summary.finalValue).toLocaleString()}원</span>
-              </div>
-              <div className="summary-card highlight">
-                <span className="label">예상 수익금</span>
-                <span className="value">{Math.round(summary.expectedProfit).toLocaleString()}원</span>
-              </div>
-              <div className="summary-card">
-                <span className="label">예상 수익률</span>
-                <span className="value">{summary.expectedReturnRatePercent.toFixed(1)}%</span>
-              </div>
-            </div>
-
             <label className="tax-toggle">
               <input type="checkbox" checked={showAfterTax} onChange={(e) => setShowAfterTax(e.target.checked)} />
               세후 기준으로 보기 (종목별 국내/해외 세율 자동 적용, 지금 다 매도 가정)
             </label>
 
-            {showAfterTax && afterTaxTotals && (
-              <div className="summary-cards">
-                <div className="summary-card">
-                  <span className="label">예상 세금 합계</span>
-                  <span className="value">{Math.round(afterTaxTotals.taxAmount).toLocaleString()}원</span>
+            {currencies.length > 1 && (
+              <p className="muted small" style={{ marginTop: -8 }}>
+                보유 통화가 여러 개라(KRW/USD) 환율 없이 더하지 않고 통화별로 따로 합산해서 보여드립니다.
+              </p>
+            )}
+          </div>
+
+          {currencies.map((currency) => {
+            const cs = summaryByCurrency[currency]
+            if (!cs) return null
+            const afterTax = afterTaxTotalsByCurrency[currency]
+            return (
+              <div key={currency} className="card">
+                <h2 style={{ marginTop: 0, fontSize: 15 }}>{currency} 종목 합산</h2>
+
+                <div className="summary-cards">
+                  <div className="summary-card">
+                    <span className="label">총 납입원금 (해당 통화 종목 합산)</span>
+                    <span className="value">{formatMoney(cs.summary.totalContributed, currency)}</span>
+                  </div>
+                  <div className="summary-card">
+                    <span className="label">예상 평가금액</span>
+                    <span className="value">{formatMoney(cs.summary.finalValue, currency)}</span>
+                  </div>
+                  <div className="summary-card highlight">
+                    <span className="label">예상 수익금</span>
+                    <span className="value">{formatMoney(cs.summary.expectedProfit, currency)}</span>
+                  </div>
+                  <div className="summary-card">
+                    <span className="label">예상 수익률</span>
+                    <span className="value">{cs.summary.expectedReturnRatePercent.toFixed(1)}%</span>
+                  </div>
                 </div>
-                <div className="summary-card highlight">
-                  <span className="label">세후 실수령 평가금액</span>
-                  <span className="value">{Math.round(afterTaxTotals.netValue).toLocaleString()}원</span>
-                </div>
-                <div className="summary-card">
-                  <span className="label">세후 순수익</span>
-                  <span className="value">
-                    {Math.round(afterTaxTotals.netValue - afterTaxTotals.totalContributed).toLocaleString()}원
-                  </span>
+
+                {showAfterTax && afterTax && (
+                  <div className="summary-cards">
+                    <div className="summary-card">
+                      <span className="label">예상 세금 합계</span>
+                      <span className="value">{formatMoney(afterTax.taxAmount, currency)}</span>
+                    </div>
+                    <div className="summary-card highlight">
+                      <span className="label">세후 실수령 평가금액</span>
+                      <span className="value">{formatMoney(afterTax.netValue, currency)}</span>
+                    </div>
+                    <div className="summary-card">
+                      <span className="label">세후 순수익</span>
+                      <span className="value">
+                        {formatMoney(afterTax.netValue - afterTax.totalContributed, currency)}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ width: '100%', height: 300 }}>
+                  <ResponsiveContainer>
+                    <LineChart data={cs.aggregated}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="month" label={{ value: '개월', position: 'insideBottomRight', offset: -5 }} />
+                      <YAxis tickFormatter={(v) => formatAxisTick(v, currency)} />
+                      <Tooltip formatter={(v: number) => formatMoney(v, currency)} labelFormatter={(m) => `${m}개월차`} />
+                      <Legend />
+                      <Line type="monotone" dataKey="contributed" name="납입원금 합산" stroke="#ADB5BD" dot={false} />
+                      <Line type="monotone" dataKey="value" name="평가금액 합산" stroke="#3182F6" dot={false} strokeWidth={2} />
+                    </LineChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
-            )}
-
-            <div style={{ width: '100%', height: 320 }}>
-              <ResponsiveContainer>
-                <LineChart data={aggregated}>
-                  <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" label={{ value: '개월', position: 'insideBottomRight', offset: -5 }} />
-                  <YAxis tickFormatter={(v) => `${Math.round(v / 10000)}만`} />
-                  <Tooltip formatter={(v: number) => `${Math.round(v).toLocaleString()}원`} labelFormatter={(m) => `${m}개월차`} />
-                  <Legend />
-                  <Line type="monotone" dataKey="contributed" name="납입원금 합산" stroke="#ADB5BD" dot={false} />
-                  <Line type="monotone" dataKey="value" name="평가금액 합산" stroke="#3182F6" dot={false} strokeWidth={2} />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+            )
+          })}
 
           <div className="card">
             <h2 style={{ marginTop: 0, fontSize: 15 }}>종목별 구성</h2>
@@ -212,10 +257,10 @@ export default function PortfolioSimulationPage({ profileId, holdings }: Props):
                     <td>
                       {r.plan.contributionType === 'QUANTITY'
                         ? `${formatQuantity(r.scaledValue)}주`
-                        : `${Math.round(r.scaledValue).toLocaleString()}원`}
+                        : formatMoney(r.scaledValue, r.holding.currency)}
                     </td>
-                    <td>{Math.round(r.last.value).toLocaleString()}원</td>
-                    {showAfterTax && <td>{Math.round(r.tax.netValue).toLocaleString()}원</td>}
+                    <td>{formatMoney(r.last.value, r.holding.currency)}</td>
+                    {showAfterTax && <td>{formatMoney(r.tax.netValue, r.holding.currency)}</td>}
                   </tr>
                 ))}
               </tbody>

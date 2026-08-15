@@ -13,7 +13,7 @@ import type { ContributionFrequency, ContributionPlan, ContributionValueType, Ho
 import { monthlyEquivalentMultiplier, projectPlanContributionGrowth, summarizeExpectedReturn } from '../../domain/compound'
 import { generateScheduleEvents } from '../../domain/contributionSchedule'
 import { DEFAULT_TAX_ASSUMPTIONS, calculateCapitalGainsTax, type Market } from '../../domain/tax'
-import { formatQuantity } from '../../utils/format'
+import { formatAxisTick, formatMoney, formatQuantity } from '../../utils/format'
 
 interface Props {
   profileId: string
@@ -240,7 +240,9 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
 
       <div className="plan-layout">
         <section className="plan-list">
-          {plans.map((p) => (
+          {plans.map((p) => {
+            const planHolding = holdings.find((h) => h.id === p.holdingId)
+            return (
             <button
               key={p.id}
               className={`plan-card ${selectedPlanId === p.id ? 'selected' : ''}`}
@@ -254,14 +256,17 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
               <strong>{p.name}</strong>
               <span className="muted">
                 {p.frequency === 'MONTHLY' ? '매월' : '매주'}{' '}
-                {p.contributionType === 'QUANTITY' ? `${formatQuantity(p.amount)}주` : `${p.amount.toLocaleString()}원`} ·
-                가정수익률 {p.assumedAnnualReturnRate}%
+                {p.contributionType === 'QUANTITY'
+                  ? `${formatQuantity(p.amount)}주`
+                  : formatMoney(p.amount, planHolding?.currency ?? 'KRW')}{' '}
+                · 가정수익률 {p.assumedAnnualReturnRate}%
               </span>
               <span className="link-danger" onClick={(e) => { e.stopPropagation(); handleDelete(p.id) }}>
                 삭제
               </span>
             </button>
-          ))}
+            )
+          })}
           {plans.length === 0 && <p className="empty-hint">등록된 적립식 계획이 없습니다.</p>}
         </section>
 
@@ -284,7 +289,7 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                 {selectedPlan.contributionType === 'QUANTITY' ? '회당 매수 수량' : '회당 적립액'}:{' '}
                 {selectedPlan.contributionType === 'QUANTITY'
                   ? `${formatQuantity(amountOverride ?? selectedPlan.amount)}주`
-                  : `${(amountOverride ?? selectedPlan.amount).toLocaleString()}원`}
+                  : formatMoney(amountOverride ?? selectedPlan.amount, selectedHolding?.currency ?? 'KRW')}
                 <input
                   type="range"
                   min={0}
@@ -302,7 +307,10 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                     매주 적립 → 월 환산 약{' '}
                     {selectedPlan.contributionType === 'QUANTITY'
                       ? `${formatQuantity((amountOverride ?? selectedPlan.amount) * monthlyEquivalentMultiplier('WEEKLY'))}주`
-                      : `${Math.round((amountOverride ?? selectedPlan.amount) * monthlyEquivalentMultiplier('WEEKLY')).toLocaleString()}원`}
+                      : formatMoney(
+                          (amountOverride ?? selectedPlan.amount) * monthlyEquivalentMultiplier('WEEKLY'),
+                          selectedHolding?.currency ?? 'KRW'
+                        )}
                     {' '}(1개월 ≈ 4.35주로 계산)
                   </span>
                 )}
@@ -323,15 +331,21 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
             <div className="summary-cards">
               <div className="summary-card">
                 <span className="label">총 납입원금</span>
-                <span className="value">{Math.round(projection.summary.totalContributed).toLocaleString()}원</span>
+                <span className="value">
+                  {formatMoney(projection.summary.totalContributed, selectedHolding?.currency ?? 'KRW')}
+                </span>
               </div>
               <div className="summary-card">
                 <span className="label">예상 평가금액</span>
-                <span className="value">{Math.round(projection.summary.finalValue).toLocaleString()}원</span>
+                <span className="value">
+                  {formatMoney(projection.summary.finalValue, selectedHolding?.currency ?? 'KRW')}
+                </span>
               </div>
               <div className="summary-card highlight">
                 <span className="label">예상 수익금</span>
-                <span className="value">{Math.round(projection.summary.expectedProfit).toLocaleString()}원</span>
+                <span className="value">
+                  {formatMoney(projection.summary.expectedProfit, selectedHolding?.currency ?? 'KRW')}
+                </span>
               </div>
               <div className="summary-card">
                 <span className="label">예상 수익률</span>
@@ -375,20 +389,32 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                         onChange={(e) => setOverseasDeduction(Number(e.target.value))}
                       />
                     </label>
+                    {selectedHolding?.currency !== 'KRW' && (
+                      <p className="muted small" style={{ gridColumn: '1 / -1', marginBottom: 0 }}>
+                        ⚠ 기본공제는 세법상 원화 기준 금액이라, {selectedHolding?.currency ?? '외화'} 손익에서 환율
+                        변환 없이 그대로 뺀 값입니다 — 정확한 세액은 실제 환전 시점 환율로 다시 계산해야 합니다.
+                      </p>
+                    )}
                   </div>
                 )}
                 <div className="summary-cards">
                   <div className="summary-card">
                     <span className="label">예상 양도소득세</span>
-                    <span className="value">{Math.round(capitalGains.taxAmount).toLocaleString()}원</span>
+                    <span className="value">
+                      {formatMoney(capitalGains.taxAmount, selectedHolding?.currency ?? 'KRW')}
+                    </span>
                   </div>
                   <div className="summary-card highlight">
                     <span className="label">세후 순수익</span>
-                    <span className="value">{Math.round(capitalGains.netProfit).toLocaleString()}원</span>
+                    <span className="value">
+                      {formatMoney(capitalGains.netProfit, selectedHolding?.currency ?? 'KRW')}
+                    </span>
                   </div>
                   <div className="summary-card">
                     <span className="label">세후 실수령 평가금액</span>
-                    <span className="value">{Math.round(capitalGains.netValue).toLocaleString()}원</span>
+                    <span className="value">
+                      {formatMoney(capitalGains.netValue, selectedHolding?.currency ?? 'KRW')}
+                    </span>
                   </div>
                   <div className="summary-card">
                     <span className="label">실효세율</span>
@@ -403,8 +429,11 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                 <LineChart data={projection.points}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="month" label={{ value: '개월', position: 'insideBottomRight', offset: -5 }} />
-                  <YAxis tickFormatter={(v) => `${Math.round(v / 10000)}만`} />
-                  <Tooltip formatter={(v: number) => `${Math.round(v).toLocaleString()}원`} labelFormatter={(m) => `${m}개월차`} />
+                  <YAxis tickFormatter={(v) => formatAxisTick(v, selectedHolding?.currency ?? 'KRW')} />
+                  <Tooltip
+                    formatter={(v: number) => formatMoney(v, selectedHolding?.currency ?? 'KRW')}
+                    labelFormatter={(m) => `${m}개월차`}
+                  />
                   <Legend />
                   <Line type="monotone" dataKey="contributed" name="납입원금" stroke="#ADB5BD" dot={false} />
                   <Line type="monotone" dataKey="value" name="평가금액" stroke="#3182F6" dot={false} strokeWidth={2} />
@@ -420,7 +449,7 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                     {ev.date} —{' '}
                     {selectedPlan.contributionType === 'QUANTITY'
                       ? `${formatQuantity(ev.plannedAmount)}주`
-                      : `${ev.plannedAmount.toLocaleString()}원`}{' '}
+                      : formatMoney(ev.plannedAmount, selectedHolding?.currency ?? 'KRW')}{' '}
                     예정
                   </li>
                 ))}

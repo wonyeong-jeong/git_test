@@ -29,9 +29,9 @@ describe('buildMonthGrid', () => {
 describe('groupEventsByDate', () => {
   it('같은 날짜 이벤트를 배열로 묶는다', () => {
     const grouped = groupEventsByDate([
-      { date: '2026-08-10', type: 'BUY', label: '삼성전자 매수', amount: 100_000 },
-      { date: '2026-08-10', type: 'DIVIDEND', label: '삼성전자 배당', amount: 5_000 },
-      { date: '2026-08-15', type: 'SELL', label: '애플 매도', amount: 50_000 }
+      { date: '2026-08-10', type: 'BUY', label: '삼성전자 매수', amount: 100_000, currency: 'KRW' },
+      { date: '2026-08-10', type: 'DIVIDEND', label: '삼성전자 배당', amount: 5_000, currency: 'KRW' },
+      { date: '2026-08-15', type: 'SELL', label: '애플 매도', amount: 50_000, currency: 'USD' }
     ])
     expect(grouped['2026-08-10']).toHaveLength(2)
     expect(grouped['2026-08-15']).toHaveLength(1)
