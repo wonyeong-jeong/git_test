@@ -11,6 +11,7 @@ import CalendarPage from './features/calendar/CalendarPage'
 import AssetGrowthPage from './features/asset-growth/AssetGrowthPage'
 import StockDetailPage from './features/stock-detail/StockDetailPage'
 import BrokerSettingsPage from './features/settings/BrokerSettingsPage'
+import MarketTickerBar from './components/MarketTickerBar'
 
 type Tab =
   | 'holdings'
@@ -71,70 +72,73 @@ export default function App(): JSX.Element {
   }
 
   return (
-    <div className="app">
-      <aside className="sidebar">
-        <div className="brand">📈 나의 포트폴리오</div>
-        <div className="profile-name">{profile.name}</div>
-        <nav>
-          <button className={tab === 'holdings' ? 'active' : ''} onClick={() => selectTab('holdings')}>
-            <span className="nav-icon">💼</span>보유 종목
-          </button>
-          <button className={tab === 'plans' ? 'active' : ''} onClick={() => selectTab('plans')}>
-            <span className="nav-icon">🔁</span>적립식 계획 &amp; 시뮬레이션
-          </button>
-          <button className={tab === 'portfolio' ? 'active' : ''} onClick={() => selectTab('portfolio')}>
-            <span className="nav-icon">📊</span>포트폴리오 합산
-          </button>
-          <button className={tab === 'dividends' ? 'active' : ''} onClick={() => selectTab('dividends')}>
-            <span className="nav-icon">💰</span>배당
-          </button>
-          <button className={tab === 'watchlist' ? 'active' : ''} onClick={() => selectTab('watchlist')}>
-            <span className="nav-icon">⭐</span>관심종목
-          </button>
-          <button className={tab === 'transactions' ? 'active' : ''} onClick={() => selectTab('transactions')}>
-            <span className="nav-icon">🧾</span>매매 이력
-          </button>
-          <button className={tab === 'calendar' ? 'active' : ''} onClick={() => selectTab('calendar')}>
-            <span className="nav-icon">🗓️</span>캘린더
-          </button>
-          <button className={tab === 'assetGrowth' ? 'active' : ''} onClick={() => selectTab('assetGrowth')}>
-            <span className="nav-icon">💹</span>자산 증식
-          </button>
-          <button className={tab === 'broker' ? 'active' : ''} onClick={() => selectTab('broker')}>
-            <span className="nav-icon">🔌</span>API 연결
-          </button>
-        </nav>
-      </aside>
-      <main className="content">
-        {selectedHolding ? (
-          <StockDetailPage
-            profileId={profile.id}
-            holding={selectedHolding}
-            onBack={() => setSelectedHoldingId(null)}
-          />
-        ) : selectedWatchlistItem ? (
-          <WatchlistDetailPage item={selectedWatchlistItem} onBack={() => setSelectedWatchlistItem(null)} />
-        ) : (
-          <>
-            {tab === 'holdings' && (
-              <HoldingsPage
-                profileId={profile.id}
-                holdings={holdings}
-                onChanged={() => refreshHoldings(profile.id)}
-                onOpenDetail={setSelectedHoldingId}
-              />
-            )}
-            {tab === 'plans' && <ContributionPlanPage profileId={profile.id} holdings={holdings} />}
-            {tab === 'portfolio' && <PortfolioSimulationPage profileId={profile.id} holdings={holdings} />}
-            {tab === 'dividends' && <DividendsPage profileId={profile.id} holdings={holdings} />}
-            {tab === 'watchlist' && <WatchlistPage profileId={profile.id} onOpenDetail={openWatchlistDetail} />}
-            {tab === 'transactions' && <TransactionsPage profileId={profile.id} holdings={holdings} />}
-            {tab === 'calendar' && <CalendarPage profileId={profile.id} holdings={holdings} />}
-            {tab === 'assetGrowth' && <AssetGrowthPage profileId={profile.id} holdings={holdings} />}
-            {tab === 'broker' && <BrokerSettingsPage />}
-          </>
-        )}
-      </main>
+    <div className="app-shell">
+      <MarketTickerBar />
+      <div className="app">
+        <aside className="sidebar">
+          <div className="brand">📈 나의 포트폴리오</div>
+          <div className="profile-name">{profile.name}</div>
+          <nav>
+            <button className={tab === 'holdings' ? 'active' : ''} onClick={() => selectTab('holdings')}>
+              <span className="nav-icon">💼</span>보유 종목
+            </button>
+            <button className={tab === 'plans' ? 'active' : ''} onClick={() => selectTab('plans')}>
+              <span className="nav-icon">🔁</span>적립식 계획 &amp; 시뮬레이션
+            </button>
+            <button className={tab === 'portfolio' ? 'active' : ''} onClick={() => selectTab('portfolio')}>
+              <span className="nav-icon">📊</span>포트폴리오 합산
+            </button>
+            <button className={tab === 'dividends' ? 'active' : ''} onClick={() => selectTab('dividends')}>
+              <span className="nav-icon">💰</span>배당
+            </button>
+            <button className={tab === 'watchlist' ? 'active' : ''} onClick={() => selectTab('watchlist')}>
+              <span className="nav-icon">⭐</span>관심종목
+            </button>
+            <button className={tab === 'transactions' ? 'active' : ''} onClick={() => selectTab('transactions')}>
+              <span className="nav-icon">🧾</span>매매 이력
+            </button>
+            <button className={tab === 'calendar' ? 'active' : ''} onClick={() => selectTab('calendar')}>
+              <span className="nav-icon">🗓️</span>캘린더
+            </button>
+            <button className={tab === 'assetGrowth' ? 'active' : ''} onClick={() => selectTab('assetGrowth')}>
+              <span className="nav-icon">💹</span>자산 증식
+            </button>
+            <button className={tab === 'broker' ? 'active' : ''} onClick={() => selectTab('broker')}>
+              <span className="nav-icon">🔌</span>API 연결
+            </button>
+          </nav>
+        </aside>
+        <main className="content">
+          {selectedHolding ? (
+            <StockDetailPage
+              profileId={profile.id}
+              holding={selectedHolding}
+              onBack={() => setSelectedHoldingId(null)}
+            />
+          ) : selectedWatchlistItem ? (
+            <WatchlistDetailPage item={selectedWatchlistItem} onBack={() => setSelectedWatchlistItem(null)} />
+          ) : (
+            <>
+              {tab === 'holdings' && (
+                <HoldingsPage
+                  profileId={profile.id}
+                  holdings={holdings}
+                  onChanged={() => refreshHoldings(profile.id)}
+                  onOpenDetail={setSelectedHoldingId}
+                />
+              )}
+              {tab === 'plans' && <ContributionPlanPage profileId={profile.id} holdings={holdings} />}
+              {tab === 'portfolio' && <PortfolioSimulationPage profileId={profile.id} holdings={holdings} />}
+              {tab === 'dividends' && <DividendsPage profileId={profile.id} holdings={holdings} />}
+              {tab === 'watchlist' && <WatchlistPage profileId={profile.id} onOpenDetail={openWatchlistDetail} />}
+              {tab === 'transactions' && <TransactionsPage profileId={profile.id} holdings={holdings} />}
+              {tab === 'calendar' && <CalendarPage profileId={profile.id} holdings={holdings} />}
+              {tab === 'assetGrowth' && <AssetGrowthPage profileId={profile.id} holdings={holdings} />}
+              {tab === 'broker' && <BrokerSettingsPage />}
+            </>
+          )}
+        </main>
+      </div>
     </div>
   )
 }

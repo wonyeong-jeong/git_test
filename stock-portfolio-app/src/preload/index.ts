@@ -9,6 +9,7 @@ import type {
   WatchlistItem
 } from '../main/types'
 import type { Quote } from '../main/broker/tossClient'
+import type { FxRate, IndexQuote } from '../main/marketData/naverClient'
 
 const api = {
   profiles: {
@@ -74,6 +75,10 @@ const api = {
     list: (profileId: string): Promise<AssetSnapshot[]> => ipcRenderer.invoke('asset-snapshots:list', profileId),
     record: (profileId: string, valuesByCurrency: Record<string, number>): Promise<AssetSnapshot> =>
       ipcRenderer.invoke('asset-snapshots:record', profileId, valuesByCurrency)
+  },
+  marketData: {
+    getIndices: (): Promise<IndexQuote[]> => ipcRenderer.invoke('market-data:getIndices'),
+    getFxRates: (): Promise<FxRate[]> => ipcRenderer.invoke('market-data:getFxRates')
   }
 }
 

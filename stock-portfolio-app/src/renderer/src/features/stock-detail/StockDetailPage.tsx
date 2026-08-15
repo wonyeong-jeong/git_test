@@ -6,9 +6,11 @@ import StockAvatar from '../../components/StockAvatar'
 import AutoRefreshControls from '../../components/AutoRefreshControls'
 import { useAutoRefreshQuotes } from '../../hooks/useAutoRefreshQuotes'
 import { useFlashOnChange } from '../../hooks/useFlashOnChange'
+import { useFxRates } from '../../hooks/useFxRates'
 import { buildCumulativeTimeline, type CumulativeDelta } from '../../domain/assetGrowth'
 import { groupDividendsByPeriod, sumDividendRecords, type DividendGranularity } from '../../domain/dividend'
 import { calculateDividendTax } from '../../domain/tax'
+import { formatAxisTick, formatMoney } from '../../utils/format'
 
 interface Props {
   profileId: string
@@ -23,6 +25,12 @@ export default function StockDetailPage({ profileId, holding, onBack }: Props): 
   const [purchases, setPurchases] = useState<ManualPurchase[]>([])
   const [dividends, setDividends] = useState<DividendRecord[]>([])
   const [granularity, setGranularity] = useState<DividendGranularity>('MONTH')
+  const [showKrw, setShowKrw] = useState(false)
+
+  const { usdKrw, lastUpdated: fxLastUpdated } = useFxRates()
+  const convert = holding.currency === 'USD' && showKrw && usdKrw != null
+  const fx = convert ? usdKrw : 1
+  const displayCurrency = convert ? 'KRW' : holding.currency
 
   useEffect(() => {
     window.api.manualPurchases
@@ -115,6 +123,28 @@ export default function StockDetailPage({ profileId, holding, onBack }: Props): 
 
       {priceError && <p className="status-error">현재가 조회 실패: {priceError}</p>}
 
+      {holding.currency === 'USD' && (
+        <div className="auto-refresh-controls">
+          <label>
+            <input
+              type="checkbox"
+              checked={showKrw}
+              disabled={usdKrw == null}
+              onChange={(e) => setShowKrw(e.target.checked)}
+            />
+            원화로 환산해서 보기
+          </label>
+          {usdKrw != null ? (
+            <span>
+              적용 환율 1 USD = {usdKrw.toLocaleString()}원
+              {fxLastUpdated && ` (${fxLastUpdated.toLocaleTimeString()} 기준)`}
+            </span>
+          ) : (
+            <span className="muted">환율 불러오는 중…</span>
+          )}
+        </div>
+      )}
+
       <div className="card">
         <div className="summary-cards">
           <div className="summary-card">
@@ -127,24 +157,22 @@ export default function StockDetailPage({ profileId, holding, onBack }: Props): 
           </div>
           <div className="summary-card">
             <span className="label">평단가</span>
-            <span className="value">
-              {holding.avgPrice.toLocaleString()} {holding.currency}
-            </span>
+            <span className="value">{formatMoney(holding.avgPrice * fx, displayCurrency)}</span>
           </div>
           <div className="summary-card">
             <span className="label">매입금액</span>
-            <span className="value">
-              {Math.round(purchaseAmount).toLocaleString()} {holding.currency}
-            </span>
+            <span className="value">{formatMoney(purchaseAmount * fx, displayCurrency)}</span>
           </div>
           <div className={`summary-card ${flash ? `flash-${flash}` : ''}`}>
             <span className="label">현재가</span>
-            <span className="value">{quote ? `${quote.lastPrice.toLocaleString()} ${quote.currency}` : '—'}</span>
+            <span className="value">
+              {quote ? formatMoney(quote.lastPrice * (convert ? fx : 1), convert ? displayCurrency : quote.currency) : '—'}
+            </span>
           </div>
           <div className="summary-card highlight">
             <span className="label">평가손익</span>
             <span className={`value ${pl === null ? '' : pl >= 0 ? 'num-positive' : 'num-negative'}`}>
-              {pl === null ? '—' : `${pl >= 0 ? '+' : ''}${Math.round(pl).toLocaleString()} ${holding.currency}`}
+              {pl === null ? '—' : `${pl >= 0 ? '+' : ''}${formatMoney(pl * fx, displayCurrency)}`}
             </span>
           </div>
         </div>
@@ -165,8 +193,8 @@ export default function StockDetailPage({ profileId, holding, onBack }: Props): 
             <LineChart data={costTimeline}>
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis dataKey="date" tick={{ fontSize: 11 }} />
-              <YAxis tickFormatter={(v) => `${Math.round(v / 10000)}만`} />
-              <Tooltip formatter={(v: number) => `${Math.round(v).toLocaleString()} ${holding.currency}`} />
+              <YAxis tickFormatter={(v) => formatAxisTick(v * fx, displayCurrency)} />
+              <Tooltip formatter={(v: number) => formatMoney(v * fx, displayCurrency)} />
               <Line type="stepAfter" dataKey="cumulativeValue" name="누적 투입원금" stroke="#3182F6" strokeWidth={2} />
             </LineChart>
           </ResponsiveContainer>
@@ -197,12 +225,12 @@ export default function StockDetailPage({ profileId, holding, onBack }: Props): 
             <div className="summary-cards">
               <div className="summary-card">
                 <span className="label">누적 배당금 (세전)</span>
-                <span className="value">{Math.round(dividendTotal).toLocaleString()}원</span>
+                <span className="value">{formatMoney(dividendTotal * fx, displayCurrency)}</span>
               </div>
               <div className="summary-card highlight">
                 <span className="label">누적 배당금 (세후)</span>
                 <span className="value">
-                  {Math.round(calculateDividendTax(dividendTotal).netDividend).toLocaleString()}원
+                  {formatMoney(calculateDividendTax(dividendTotal).netDividend * fx, displayCurrency)}
                 </span>
               </div>
             </div>
@@ -224,8 +252,8 @@ export default function StockDetailPage({ profileId, holding, onBack }: Props): 
                 <BarChart data={dividendBuckets}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} />
                   <XAxis dataKey="label" tick={{ fontSize: 12 }} />
-                  <YAxis tickFormatter={(v) => `${Math.round(v / 10000)}만`} />
-                  <Tooltip formatter={(v: number) => `${Math.round(v).toLocaleString()}원`} />
+                  <YAxis tickFormatter={(v) => formatAxisTick(v * fx, displayCurrency)} />
+                  <Tooltip formatter={(v: number) => formatMoney(v * fx, displayCurrency)} />
                   <Bar dataKey="total" name="배당" fill="#3182F6" radius={[4, 4, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
@@ -245,7 +273,7 @@ export default function StockDetailPage({ profileId, holding, onBack }: Props): 
                   .map((d) => (
                     <tr key={d.id}>
                       <td>{d.date}</td>
-                      <td>{d.amount.toLocaleString()}원</td>
+                      <td>{formatMoney(d.amount * fx, displayCurrency)}</td>
                       <td className="muted">{d.note ?? '—'}</td>
                     </tr>
                   ))}

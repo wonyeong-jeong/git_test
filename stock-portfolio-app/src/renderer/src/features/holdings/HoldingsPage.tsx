@@ -7,6 +7,8 @@ import MarketStatusBadge from '../../components/MarketStatusBadge'
 import AutoRefreshControls from '../../components/AutoRefreshControls'
 import { useAutoRefreshQuotes } from '../../hooks/useAutoRefreshQuotes'
 import { useFlashOnChange } from '../../hooks/useFlashOnChange'
+import { useFxRates } from '../../hooks/useFxRates'
+import { formatMoney } from '../../utils/format'
 
 interface Props {
   profileId: string
@@ -31,14 +33,22 @@ interface RowProps {
   quote?: Quote
   onDelete: (id: string) => void
   onOpenDetail: (holdingId: string) => void
+  /** true면 USD 종목을 원화로 환산해서 보여준다(usdKrw가 있을 때만 실제로 적용됨) */
+  showKrw: boolean
+  usdKrw: number | null
 }
 
 /** 행을 별도 컴포넌트로 분리한 이유: useFlashOnChange는 각 행마다 독립적으로 상태를 가져야
  * 하는데, 부모의 .map() 콜백 안에서 직접 훅을 호출하면 Rules of Hooks를 어기게 된다. */
-function HoldingRow({ holding, quote, onDelete, onOpenDetail }: RowProps): JSX.Element {
+function HoldingRow({ holding, quote, onDelete, onOpenDetail, showKrw, usdKrw }: RowProps): JSX.Element {
   const flash = useFlashOnChange(quote?.lastPrice)
   const priceKnown = quote && quote.currency === holding.currency
   const pl = priceKnown ? (quote.lastPrice - holding.avgPrice) * holding.quantity : null
+
+  // 이 행에만 적용할 환산 배율. USD 종목이고 토글이 켜져 있고 환율을 실제로 가져왔을 때만 적용
+  const convert = showKrw && holding.currency === 'USD' && usdKrw != null
+  const fx = convert ? usdKrw : 1
+  const displayCurrency = convert ? 'KRW' : holding.currency
 
   return (
     <tr className="clickable-row" onClick={() => onOpenDetail(holding.id)}>
@@ -49,15 +59,13 @@ function HoldingRow({ holding, quote, onDelete, onOpenDetail }: RowProps): JSX.E
         </span>
       </td>
       <td>{holding.quantity.toLocaleString()}</td>
-      <td>
-        {holding.avgPrice.toLocaleString()} {holding.currency}
-      </td>
-      <td>{(holding.quantity * holding.avgPrice).toLocaleString()}</td>
+      <td>{formatMoney(holding.avgPrice * fx, displayCurrency)}</td>
+      <td>{formatMoney(holding.quantity * holding.avgPrice * fx, displayCurrency)}</td>
       <td className={flash ? `flash-${flash}` : ''}>
-        {quote ? `${quote.lastPrice.toLocaleString()} ${quote.currency}` : '—'}
+        {quote ? formatMoney(quote.lastPrice * (convert ? fx : 1), convert ? displayCurrency : quote.currency) : '—'}
       </td>
       <td className={pl === null ? '' : pl >= 0 ? 'num-positive' : 'num-negative'}>
-        {pl === null ? '—' : `${pl >= 0 ? '+' : ''}${Math.round(pl).toLocaleString()}`}
+        {pl === null ? '—' : `${pl >= 0 ? '+' : ''}${Math.round(pl * fx).toLocaleString()}`}
       </td>
       <td>
         <button
@@ -78,6 +86,9 @@ export default function HoldingsPage({ profileId, holdings, onChanged, onOpenDet
   const [form, setForm] = useState(emptyForm)
   const [submitting, setSubmitting] = useState(false)
   const [manualEntry, setManualEntry] = useState(false)
+  const [showKrw, setShowKrw] = useState(false)
+
+  const { usdKrw, lastUpdated: fxLastUpdated } = useFxRates()
 
   const {
     quotes,
@@ -107,6 +118,7 @@ export default function HoldingsPage({ profileId, holdings, onChanged, onOpenDet
 
   const totalValue = holdings.reduce((sum, h) => sum + h.quantity * h.avgPrice, 0)
   const heldCurrencies = [...new Set(holdings.map((h) => h.currency))]
+  const hasUsdHoldings = holdings.some((h) => h.currency === 'USD')
 
   async function handleSubmit(e: FormEvent): Promise<void> {
     e.preventDefault()
@@ -158,6 +170,28 @@ export default function HoldingsPage({ profileId, holdings, onChanged, onOpenDet
       )}
 
       {priceError && <p className="status-error">현재가 조회 실패: {priceError}</p>}
+
+      {hasUsdHoldings && (
+        <div className="auto-refresh-controls">
+          <label>
+            <input
+              type="checkbox"
+              checked={showKrw}
+              disabled={usdKrw == null}
+              onChange={(e) => setShowKrw(e.target.checked)}
+            />
+            달러 종목을 원화로 환산해서 보기
+          </label>
+          {usdKrw != null ? (
+            <span>
+              적용 환율 1 USD = {usdKrw.toLocaleString()}원
+              {fxLastUpdated && ` (${fxLastUpdated.toLocaleTimeString()} 기준)`}
+            </span>
+          ) : (
+            <span className="muted">환율 불러오는 중…</span>
+          )}
+        </div>
+      )}
 
       <form className="card form-grid" onSubmit={handleSubmit}>
         <label>
@@ -263,6 +297,8 @@ export default function HoldingsPage({ profileId, holdings, onChanged, onOpenDet
                   quote={quotes[h.ticker]}
                   onDelete={handleDelete}
                   onOpenDetail={onOpenDetail}
+                  showKrw={showKrw}
+                  usdKrw={usdKrw}
                 />
               ))}
             </tbody>

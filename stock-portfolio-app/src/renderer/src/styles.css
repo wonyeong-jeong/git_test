@@ -83,9 +83,16 @@ body {
   font-size: 14px;
 }
 
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+
 .app {
   display: flex;
-  height: 100vh;
+  flex: 1;
+  min-height: 0;
 }
 
 /* ---------- 사이드바 ---------- */
@@ -992,5 +999,55 @@ tbody tr:last-child td {
   50% {
     opacity: 1;
     transform: scale(1.2);
+  }
+}
+
+/* ---------- 상단 시장 지수/환율 티커바 ---------- */
+
+.market-ticker {
+  overflow: hidden;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 9px 0;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.market-ticker-track {
+  display: inline-flex;
+  gap: 32px;
+  padding-left: 32px;
+  animation: ticker-scroll 45s linear infinite;
+}
+
+.market-ticker:hover .market-ticker-track {
+  animation-play-state: paused;
+}
+
+.market-ticker-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+@keyframes ticker-scroll {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .market-ticker {
+    overflow-x: auto;
+  }
+
+  .market-ticker-track {
+    animation: none;
   }
 }

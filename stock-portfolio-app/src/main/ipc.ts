@@ -10,6 +10,7 @@ import {
 import type { AssetSnapshot, ContributionPlan, DividendRecord, Holding, ManualPurchase, WatchlistItem } from './types'
 import { clearCredentials, hasCredentials, saveCredentials } from './broker/credentialStore'
 import { getQuotes } from './broker/tossClient'
+import { getFxRates, getMajorIndices } from './marketData/naverClient'
 
 export function registerIpcHandlers(): void {
   ipcMain.handle('profiles:list', () => listProfiles())
@@ -156,6 +157,10 @@ export function registerIpcHandlers(): void {
   })
 
   ipcMain.handle('broker:getQuotes', (_e, symbols: string[]) => getQuotes(symbols))
+
+  // 로그인/키 없이 접근 가능한 공개 시장 데이터라 profileId가 필요 없다
+  ipcMain.handle('market-data:getIndices', () => getMajorIndices())
+  ipcMain.handle('market-data:getFxRates', () => getFxRates())
 
   ipcMain.handle('asset-snapshots:list', (_e, profileId: string) => getProfileData(profileId).assetSnapshots)
 

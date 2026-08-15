@@ -103,3 +103,20 @@ export interface AssetSnapshot {
   valuesByCurrency: Record<string, number>
   createdAt: string
 }
+
+export interface IndexQuote {
+  code: string
+  name: string
+  price: number
+  changeAmount: number
+  changeRatio: number
+}
+
+export interface FxRate {
+  code: string
+  name: string
+  /** 외화 1단위 = rate 원 */
+  rate: number
+  changeAmount: number
+  changeRatio: number
+}
