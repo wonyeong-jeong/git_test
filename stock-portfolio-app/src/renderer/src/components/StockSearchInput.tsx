@@ -16,8 +16,11 @@ const MAX_RESULTS = 20
 
 /**
  * 국내(KRX) 상장종목 코드/이름 자동완성 콤보박스.
- * 데이터는 한국거래소 KIND 상장법인목록에서 한 번 내려받아 앱에 내장한 정적 파일
- * (`data/krxStocks.json`, 2026-08 기준 2,701개 종목)이라 오프라인으로 동작한다.
+ * 데이터는 두 소스를 한 번 내려받아 합쳐서 앱에 내장한 정적 파일이다(`data/krxStocks.json`,
+ * 오프라인 동작):
+ *   - 일반 상장주식: 한국거래소 KIND 상장법인목록 (2026-08 기준 2,701개)
+ *   - ETF: 네이버 금융 ETF 목록 (2026-08 기준 1,163개) — KIND 상장법인목록은 ETF를
+ *     "법인"으로 분류하지 않아서 빠져 있었다(예: KODEX 200, TIGER 미국S&P500 등이 검색 안 되던 문제)
  * 신규상장/상장폐지가 반영되려면 이 파일을 주기적으로 갱신해야 한다.
  */
 export default function StockSearchInput({ onSelect, placeholder }: Props): JSX.Element {
