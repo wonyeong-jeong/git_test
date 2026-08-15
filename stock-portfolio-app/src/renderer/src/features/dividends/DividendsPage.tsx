@@ -102,6 +102,7 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
         if (!holding) return null
         const growth = projectPlanContributionGrowth({
           contributionType: plan.contributionType,
+          frequency: plan.frequency,
           value: plan.amount * (amountMultiplierPercent / 100),
           referencePrice: holding.avgPrice,
           initialPrincipal: holding.quantity * holding.avgPrice,

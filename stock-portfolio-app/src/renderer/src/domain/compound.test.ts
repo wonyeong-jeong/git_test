@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   aggregateProjections,
+  monthlyEquivalentMultiplier,
   projectContributionGrowth,
   projectPlanContributionGrowth,
   projectQuantityContributionGrowth,
@@ -127,10 +128,22 @@ describe('projectQuantityContributionGrowth', () => {
   })
 })
 
+describe('monthlyEquivalentMultiplier', () => {
+  it('MONTHLY는 1배(그대로)', () => {
+    expect(monthlyEquivalentMultiplier('MONTHLY')).toBe(1)
+  })
+
+  it('WEEKLY는 4배가 아니라 평균 4.348배(365.2425/7/12)', () => {
+    expect(monthlyEquivalentMultiplier('WEEKLY')).toBeCloseTo(4.348, 2)
+    expect(monthlyEquivalentMultiplier('WEEKLY')).not.toBeCloseTo(4, 2)
+  })
+})
+
 describe('projectPlanContributionGrowth', () => {
-  it("contributionType이 'AMOUNT'면 projectContributionGrowth와 동일한 결과", () => {
+  it("contributionType이 'AMOUNT'이고 MONTHLY면 projectContributionGrowth와 동일한 결과", () => {
     const viaDispatcher = projectPlanContributionGrowth({
       contributionType: 'AMOUNT',
+      frequency: 'MONTHLY',
       value: 300_000,
       initialPrincipal: 1_000_000,
       annualReturnRatePercent: 7,
@@ -145,9 +158,10 @@ describe('projectPlanContributionGrowth', () => {
     expect(viaDispatcher).toEqual(direct)
   })
 
-  it("contributionType이 'QUANTITY'면 projectQuantityContributionGrowth와 동일한 결과", () => {
+  it("contributionType이 'QUANTITY'이고 MONTHLY면 projectQuantityContributionGrowth와 동일한 결과", () => {
     const viaDispatcher = projectPlanContributionGrowth({
       contributionType: 'QUANTITY',
+      frequency: 'MONTHLY',
       value: 0.5,
       referencePrice: 80_000,
       initialPrincipal: 500_000,
@@ -162,6 +176,46 @@ describe('projectPlanContributionGrowth', () => {
       months: 12
     })
     expect(viaDispatcher).toEqual(direct)
+  })
+
+  it('회귀 테스트 — WEEKLY 적립은 월 환산 배수(4.348)를 곱해서 계산한다 (버그: 예전엔 그냥 1번/월로 계산됨)', () => {
+    // 매주 1주씩(QLD 같은 시나리오), 기준가 100, 0% 수익률로 12개월 시뮬레이션하면
+    // 총 매수 수량은 4.348 * 12 ≈ 52.18주(1년 = 52.18주와 정확히 일치해야 함)여야지,
+    // 버그가 있던 것처럼 12주(월 1주)여선 안 된다.
+    const weekly = projectPlanContributionGrowth({
+      contributionType: 'QUANTITY',
+      frequency: 'WEEKLY',
+      value: 1,
+      referencePrice: 100,
+      initialPrincipal: 0,
+      annualReturnRatePercent: 0,
+      months: 12
+    })
+    const last = weekly[weekly.length - 1]
+    const totalQuantity = last.contributed / 100 // 0% 수익률이라 기준가 불변 -> 금액/기준가 = 수량
+    expect(totalQuantity).toBeCloseTo(365.2425 / 7, 2) // 1년치 주 수와 일치
+    expect(totalQuantity).not.toBeCloseTo(12, 1) // 버그였다면 이렇게 나왔을 값
+  })
+
+  it('같은 회당 값이면 WEEKLY 적립이 MONTHLY보다 약 4.348배 더 많이 투입된다', () => {
+    const weekly = projectPlanContributionGrowth({
+      contributionType: 'AMOUNT',
+      frequency: 'WEEKLY',
+      value: 10_000,
+      initialPrincipal: 0,
+      annualReturnRatePercent: 0,
+      months: 12
+    })
+    const monthly = projectPlanContributionGrowth({
+      contributionType: 'AMOUNT',
+      frequency: 'MONTHLY',
+      value: 10_000,
+      initialPrincipal: 0,
+      annualReturnRatePercent: 0,
+      months: 12
+    })
+    const ratio = weekly[weekly.length - 1].contributed / monthly[monthly.length - 1].contributed
+    expect(ratio).toBeCloseTo(365.2425 / 7 / 12, 3)
   })
 })
 

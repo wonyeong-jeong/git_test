@@ -52,6 +52,7 @@ export default function PortfolioSimulationPage({ profileId, holdings }: Props):
         const scaledValue = plan.amount * (amountMultiplierPercent / 100)
         const points = projectPlanContributionGrowth({
           contributionType: plan.contributionType,
+          frequency: plan.frequency,
           value: scaledValue,
           referencePrice: holding.avgPrice,
           initialPrincipal: holding.quantity * holding.avgPrice,

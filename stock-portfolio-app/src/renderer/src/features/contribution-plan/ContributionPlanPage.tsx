@@ -10,7 +10,7 @@ import {
   YAxis
 } from 'recharts'
 import type { ContributionFrequency, ContributionPlan, ContributionValueType, Holding } from '../../types'
-import { projectPlanContributionGrowth, summarizeExpectedReturn } from '../../domain/compound'
+import { monthlyEquivalentMultiplier, projectPlanContributionGrowth, summarizeExpectedReturn } from '../../domain/compound'
 import { generateScheduleEvents } from '../../domain/contributionSchedule'
 import { DEFAULT_TAX_ASSUMPTIONS, calculateCapitalGainsTax, type Market } from '../../domain/tax'
 import { formatQuantity } from '../../utils/format'
@@ -99,6 +99,7 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
     const annualReturnRatePercent = returnOverride ?? selectedPlan.assumedAnnualReturnRate
     const points = projectPlanContributionGrowth({
       contributionType: selectedPlan.contributionType,
+      frequency: selectedPlan.frequency,
       value,
       referencePrice: selectedHolding.avgPrice,
       initialPrincipal,
@@ -296,6 +297,15 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                   value={amountOverride ?? selectedPlan.amount}
                   onChange={(e) => setAmountOverride(Number(e.target.value))}
                 />
+                {selectedPlan.frequency === 'WEEKLY' && (
+                  <span className="muted small">
+                    매주 적립 → 월 환산 약{' '}
+                    {selectedPlan.contributionType === 'QUANTITY'
+                      ? `${formatQuantity((amountOverride ?? selectedPlan.amount) * monthlyEquivalentMultiplier('WEEKLY'))}주`
+                      : `${Math.round((amountOverride ?? selectedPlan.amount) * monthlyEquivalentMultiplier('WEEKLY')).toLocaleString()}원`}
+                    {' '}(1개월 ≈ 4.35주로 계산)
+                  </span>
+                )}
               </label>
               <label>
                 가정 연 수익률: {(returnOverride ?? selectedPlan.assumedAnnualReturnRate).toFixed(1)}%

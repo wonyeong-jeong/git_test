@@ -91,9 +91,24 @@ export function projectQuantityContributionGrowth(input: QuantityContributionInp
   return points
 }
 
+export type ContributionFrequency = 'MONTHLY' | 'WEEKLY'
+
+/**
+ * 이 모듈의 복리 계산은 전부 "월" 단위로만 굴러간다(annualReturnRatePercent를 월率로 쪼개서
+ * 매달 한 번씩 적립+성장을 반복). WEEKLY 적립은 한 달에 정확히 4번이 아니라 평균
+ * 365.2425일 / 7일 / 12개월 ≈ 4.348번 들어온다 — 이 계수 없이 "회당 값"을 그대로 월간
+ * 값으로 쓰면 실제 적립 속도를 4배 넘게 과소평가하게 된다(예: 매주 1주씩 사는 계획을
+ * 매달 1주씩 사는 것처럼 계산해버림). 그래서 회당 값에 이 배수를 곱해 "월 환산 값"으로
+ * 바꾼 뒤에만 projectContributionGrowth/projectQuantityContributionGrowth에 넘긴다.
+ */
+export function monthlyEquivalentMultiplier(frequency: ContributionFrequency): number {
+  return frequency === 'WEEKLY' ? 365.2425 / 7 / 12 : 1
+}
+
 export interface PlanContributionInput {
   contributionType: 'AMOUNT' | 'QUANTITY'
-  /** contributionType이 'AMOUNT'면 금액, 'QUANTITY'면 수량 */
+  frequency: ContributionFrequency
+  /** contributionType이 'AMOUNT'면 회당 금액, 'QUANTITY'면 회당 수량 (frequency 단위 그대로, 월 환산은 이 함수가 처리) */
   value: number
   /** contributionType이 'QUANTITY'일 때만 쓰임 — 수량을 금액으로 환산할 기준가 */
   referencePrice?: number
@@ -103,16 +118,18 @@ export interface PlanContributionInput {
 }
 
 /**
- * 적립식 계획(ContributionPlan)의 contributionType에 따라 금액 기준/수량 기준 시뮬레이션
- * 중 알맞은 쪽으로 자동 분기하는 진입점. 페이지마다 이 분기 로직을 반복해서 만들지 않으려고
- * 여기 하나로 모았다.
+ * 적립식 계획(ContributionPlan)의 contributionType·frequency에 따라 금액 기준/수량 기준
+ * 시뮬레이션 중 알맞은 쪽으로 자동 분기하고, WEEKLY 적립이면 월 환산까지 처리하는 단일
+ * 진입점. 페이지마다 이 분기·환산 로직을 반복해서 만들지 않으려고 여기 하나로 모았다.
  */
 export function projectPlanContributionGrowth(input: PlanContributionInput): CompoundProjectionPoint[] {
-  const { contributionType, value, referencePrice, initialPrincipal, annualReturnRatePercent, months } = input
+  const { contributionType, frequency, value, referencePrice, initialPrincipal, annualReturnRatePercent, months } = input
+  const monthlyValue = value * monthlyEquivalentMultiplier(frequency)
+
   if (contributionType === 'QUANTITY') {
     return projectQuantityContributionGrowth({
       initialPrincipal,
-      quantityPerContribution: value,
+      quantityPerContribution: monthlyValue,
       referencePrice: referencePrice ?? 0,
       annualReturnRatePercent,
       months
@@ -120,7 +137,7 @@ export function projectPlanContributionGrowth(input: PlanContributionInput): Com
   }
   return projectContributionGrowth({
     initialPrincipal,
-    monthlyContribution: value,
+    monthlyContribution: monthlyValue,
     annualReturnRatePercent,
     months
   })
