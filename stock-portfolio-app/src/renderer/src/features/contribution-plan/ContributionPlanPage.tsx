@@ -10,7 +10,12 @@ import {
   YAxis
 } from 'recharts'
 import type { ContributionFrequency, ContributionPlan, ContributionValueType, Holding, ManualPurchase } from '../../types'
-import { monthlyEquivalentMultiplier, projectPlanContributionGrowth, summarizeExpectedReturn } from '../../domain/compound'
+import {
+  aggregateProjections,
+  monthlyEquivalentMultiplier,
+  projectPlanContributionGrowth,
+  summarizeExpectedReturn
+} from '../../domain/compound'
 import { generateScheduleEvents } from '../../domain/contributionSchedule'
 import { deriveCurrentPosition } from '../../domain/position'
 import { DEFAULT_TAX_ASSUMPTIONS, calculateCapitalGainsTax, type Market } from '../../domain/tax'
@@ -29,6 +34,9 @@ const emptyForm = {
   frequency: 'MONTHLY' as ContributionFrequency,
   contributionType: 'AMOUNT' as ContributionValueType,
   amount: '300000',
+  /** 해외(USD) 종목 + 금액 방식일 때만 의미 있음 — 'KRW'면 입력한 금액을 원화로 보고 저장 직전에
+   * 달러로 환산한다(토스증권처럼 "원화로 얼마어치 살지" 정할 수 있게). 그 외에는 항상 'NATIVE'. */
+  inputCurrency: 'NATIVE' as 'NATIVE' | 'KRW',
   dayOfMonth: '1',
   startDate: new Date().toISOString().slice(0, 10),
   endDate: '',
@@ -56,6 +64,8 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
 
   // USD 종목을 원화로 환산해서 볼지 여부
   const [showKrw, setShowKrw] = useState(false)
+  // 전체 계획을 원화로 합산해서 볼 기간(개월) — 아래 "전체 계획 합산" 카드 전용
+  const [allPlansMonths, setAllPlansMonths] = useState(24)
   const { usdKrw, lastUpdated: fxLastUpdated } = useFxRates()
 
   async function refresh(): Promise<void> {
@@ -74,13 +84,18 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
     if (!form.holdingId) return
     const holding = holdings.find((h) => h.id === form.holdingId)
     if (!holding) return
+    // ContributionPlan.amount는 항상 종목의 원래 통화(holding.currency) 기준으로 저장한다 —
+    // 화면 표시/시뮬레이션 로직 전부가 그걸 전제로 짜여 있어서다. 그래서 사용자가 "원화로
+    // 입력"을 골랐을 땐 저장 직전에 딱 한 번만 달러로 환산하고, 그 뒤로는 평소와 똑같이 다룬다.
+    const useKrwInput = holding.currency === 'USD' && form.contributionType === 'AMOUNT' && form.inputCurrency === 'KRW'
+    const amount = useKrwInput && usdKrw ? Number(form.amount) / usdKrw : Number(form.amount)
     await window.api.contributionPlans.create(profileId, {
       holdingId: holding.id,
       ticker: holding.ticker,
       name: holding.name,
       frequency: form.frequency,
       contributionType: form.contributionType,
-      amount: Number(form.amount),
+      amount,
       dayOfMonth: form.frequency === 'MONTHLY' ? Number(form.dayOfMonth) : undefined,
       startDate: form.startDate,
       endDate: form.endDate || undefined,
@@ -91,6 +106,19 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
     setForm(emptyForm)
     refresh()
   }
+
+  const formHolding = holdings.find((h) => h.id === form.holdingId)
+  // 해외(USD) 종목을 '금액' 방식으로 적립할 때만 "원화로 입력" 옵션을 보여준다 — 수량 방식은
+  // 애초에 통화와 무관하고(몇 주인지), 국내 종목은 이미 원화라 변환할 필요가 없다.
+  const canInputKrw = formHolding?.currency === 'USD' && form.contributionType === 'AMOUNT'
+  const krwPreviewUsd =
+    canInputKrw && form.inputCurrency === 'KRW' && usdKrw && Number(form.amount) > 0
+      ? Number(form.amount) / usdKrw
+      : null
+  const usdPreviewKrw =
+    canInputKrw && form.inputCurrency === 'NATIVE' && usdKrw && Number(form.amount) > 0
+      ? Number(form.amount) * usdKrw
+      : null
 
   async function handleDelete(planId: string): Promise<void> {
     await window.api.contributionPlans.delete(profileId, planId)
@@ -130,6 +158,45 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
     return { points, summary: summarizeExpectedReturn(points) }
   }, [selectedPlan, selectedHolding, position, monthsHorizon, amountOverride, returnOverride])
 
+  // 활성화된 계획 전체를 (통화 상관없이) 원화 하나로 합쳐서 보는 요약 카드용 — 종목별/통화별
+  // 자세한 비교는 '포트폴리오 합산 시뮬레이션' 탭이 담당하고, 여기서는 "지금 계획대로 계속하면
+  // 전체 얼마가 되는지"를 한눈에 보여주는 게 목적이라 계획마다 이미 설정된 가정수익률을 그대로 쓴다.
+  const allPlansRows = useMemo(() => {
+    return plans
+      .filter((p) => p.active)
+      .map((plan) => {
+        const holding = holdings.find((h) => h.id === plan.holdingId)
+        if (!holding) return null
+        const holdingPurchases = purchases.filter((p) => p.holdingId === holding.id)
+        const pos = deriveCurrentPosition(holding, holdingPurchases)
+        const points = projectPlanContributionGrowth({
+          contributionType: plan.contributionType,
+          frequency: plan.frequency,
+          value: plan.amount,
+          referencePrice: pos.avgPrice,
+          initialPrincipal: pos.totalCost,
+          annualReturnRatePercent: plan.assumedAnnualReturnRate,
+          months: allPlansMonths
+        })
+        return { plan, holding, points }
+      })
+      .filter((r): r is { plan: ContributionPlan; holding: Holding; points: ReturnType<typeof projectPlanContributionGrowth> } => r !== null)
+  }, [plans, holdings, purchases, allPlansMonths])
+
+  const allPlansCurrencies = useMemo(() => [...new Set(allPlansRows.map((r) => r.holding.currency))], [allPlansRows])
+  const allPlansNeedFx = allPlansCurrencies.includes('USD')
+  const allPlansCombinedKrw = useMemo(() => {
+    if (allPlansRows.length === 0) return null
+    if (allPlansNeedFx && usdKrw == null) return null
+    const convertedPointsList = allPlansRows.map((r) => {
+      const fx = r.holding.currency === 'USD' ? (usdKrw as number) : 1
+      return r.points.map((p) => ({ month: p.month, contributed: p.contributed * fx, value: p.value * fx }))
+    })
+    const aggregated = aggregateProjections(convertedPointsList)
+    if (aggregated.length === 0) return null
+    return { aggregated, summary: summarizeExpectedReturn(aggregated) }
+  }, [allPlansRows, allPlansNeedFx, usdKrw])
+
   const market: Market = selectedHolding?.currency === 'USD' ? 'OVERSEAS' : 'DOMESTIC'
 
   const capitalGains = useMemo(() => {
@@ -168,11 +235,18 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
       <form className="card form-grid" onSubmit={handleSubmit}>
         <label>
           대상 종목
-          <select value={form.holdingId} onChange={(e) => setForm({ ...form, holdingId: e.target.value })}>
+          <select
+            value={form.holdingId}
+            onChange={(e) => {
+              const nextHolding = holdings.find((h) => h.id === e.target.value)
+              // USD가 아닌 종목을 고르면 "원화로 입력" 옵션이 의미가 없어지므로 원래대로 되돌린다.
+              setForm({ ...form, holdingId: e.target.value, inputCurrency: nextHolding?.currency === 'USD' ? form.inputCurrency : 'NATIVE' })
+            }}
+          >
             <option value="">선택하세요</option>
             {holdings.map((h) => (
               <option key={h.id} value={h.id}>
-                {h.name} ({h.ticker})
+                {h.name} ({h.ticker}) {h.currency === 'USD' ? '🇺🇸' : ''}
               </option>
             ))}
           </select>
@@ -195,15 +269,41 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                 key={t}
                 type="button"
                 className={form.contributionType === t ? 'active' : ''}
-                onClick={() => setForm({ ...form, contributionType: t })}
+                onClick={() => setForm({ ...form, contributionType: t, inputCurrency: t === 'AMOUNT' ? form.inputCurrency : 'NATIVE' })}
               >
                 {CONTRIBUTION_TYPE_LABELS[t]}
               </button>
             ))}
           </div>
         </label>
+        {canInputKrw && (
+          <label>
+            입력 통화 (토스증권처럼 원화 금액으로 정할 수 있어요)
+            <div className="period-toggle" style={{ marginBottom: 0 }}>
+              <button
+                type="button"
+                className={form.inputCurrency === 'NATIVE' ? 'active' : ''}
+                onClick={() => setForm({ ...form, inputCurrency: 'NATIVE' })}
+              >
+                달러(USD)
+              </button>
+              <button
+                type="button"
+                className={form.inputCurrency === 'KRW' ? 'active' : ''}
+                disabled={usdKrw == null}
+                onClick={() => setForm({ ...form, inputCurrency: 'KRW' })}
+              >
+                원화(KRW)
+              </button>
+            </div>
+          </label>
+        )}
         <label>
-          {form.contributionType === 'QUANTITY' ? '회당 매수 수량 (소수점 가능)' : '회당 금액'}
+          {form.contributionType === 'QUANTITY'
+            ? '회당 매수 수량 (소수점 가능)'
+            : canInputKrw && form.inputCurrency === 'KRW'
+              ? '회당 금액 (원화)'
+              : '회당 금액'}
           <input
             type="number"
             min="0"
@@ -211,6 +311,8 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
             value={form.amount}
             onChange={(e) => setForm({ ...form, amount: e.target.value })}
           />
+          {krwPreviewUsd != null && <span className="muted small">≈ {formatMoney(krwPreviewUsd, 'USD')} (현재 환율 기준)</span>}
+          {usdPreviewKrw != null && <span className="muted small">≈ {formatMoney(usdPreviewKrw, 'KRW')} (현재 환율 기준)</span>}
         </label>
         {form.frequency === 'MONTHLY' && (
           <label>
@@ -258,6 +360,66 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
       </form>
 
       {holdings.length === 0 && <p className="empty-hint">먼저 '보유 종목' 탭에서 종목을 등록해야 계획을 만들 수 있어요.</p>}
+
+      {allPlansRows.length > 0 && (
+        <section className="card">
+          <h2 style={{ marginTop: 0, fontSize: 15 }}>전체 계획 합산 (원화 환산)</h2>
+          <p className="muted small" style={{ marginTop: 0 }}>
+            활성화된 적립식 계획 전체를 각자의 가정수익률대로 계속 진행한다고 볼 때, 통화와 상관없이 지금 환율로 환산해서
+            하나로 합친 값입니다. 종목/통화별 자세한 비교나 세후 계산은 '포트폴리오 합산 시뮬레이션' 탭에서 확인하세요.
+          </p>
+
+          <label style={{ display: 'block', marginBottom: 16 }}>
+            시뮬레이션 기간: {allPlansMonths}개월
+            <input
+              type="range"
+              min={1}
+              max={240}
+              value={allPlansMonths}
+              onChange={(e) => setAllPlansMonths(Number(e.target.value))}
+            />
+          </label>
+
+          {allPlansCombinedKrw ? (
+            <>
+              <div className="summary-cards">
+                <div className="summary-card">
+                  <span className="label">총 납입원금 (전체 합산)</span>
+                  <span className="value">{formatMoney(allPlansCombinedKrw.summary.totalContributed, 'KRW')}</span>
+                </div>
+                <div className="summary-card">
+                  <span className="label">예상 평가금액</span>
+                  <span className="value">{formatMoney(allPlansCombinedKrw.summary.finalValue, 'KRW')}</span>
+                </div>
+                <div className="summary-card highlight">
+                  <span className="label">예상 수익금</span>
+                  <span className="value">{formatMoney(allPlansCombinedKrw.summary.expectedProfit, 'KRW')}</span>
+                </div>
+                <div className="summary-card">
+                  <span className="label">예상 수익률</span>
+                  <span className="value">{allPlansCombinedKrw.summary.expectedReturnRatePercent.toFixed(1)}%</span>
+                </div>
+              </div>
+
+              <div style={{ width: '100%', height: 260 }}>
+                <ResponsiveContainer>
+                  <LineChart data={allPlansCombinedKrw.aggregated}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="month" label={{ value: '개월', position: 'insideBottomRight', offset: -5 }} />
+                    <YAxis tickFormatter={(v) => formatAxisTick(v, 'KRW')} />
+                    <Tooltip formatter={(v: number) => formatMoney(v, 'KRW')} labelFormatter={(m) => `${m}개월차`} />
+                    <Legend />
+                    <Line type="monotone" dataKey="contributed" name="납입원금 합산" stroke="#ADB5BD" dot={false} />
+                    <Line type="monotone" dataKey="value" name="평가금액 합산" stroke="#3182F6" dot={false} strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </>
+          ) : (
+            <p className="muted small">환율을 불러오는 중이라 아직 합산할 수 없어요…</p>
+          )}
+        </section>
+      )}
 
       <div className="plan-layout">
         <section className="plan-list">
