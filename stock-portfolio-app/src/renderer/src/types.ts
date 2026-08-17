@@ -26,7 +26,7 @@ export interface Holding {
   createdAt: string
 }
 
-export type ContributionFrequency = 'MONTHLY' | 'WEEKLY'
+export type ContributionFrequency = 'MONTHLY' | 'WEEKLY' | 'DAILY'
 
 /** 회당 적립을 금액으로 정할지, 수량(소수점 매수 포함)으로 정할지 */
 export type ContributionValueType = 'AMOUNT' | 'QUANTITY'

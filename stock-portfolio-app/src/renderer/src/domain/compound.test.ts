@@ -168,6 +168,11 @@ describe('monthlyEquivalentMultiplier', () => {
     expect(monthlyEquivalentMultiplier('WEEKLY')).toBeCloseTo(4.348, 2)
     expect(monthlyEquivalentMultiplier('WEEKLY')).not.toBeCloseTo(4, 2)
   })
+
+  it('DAILY는 한달 평균 일수(30.44)가 아니라 영업일 비율(5/7)만 반영한 21.74배', () => {
+    expect(monthlyEquivalentMultiplier('DAILY')).toBeCloseTo(21.74, 1)
+    expect(monthlyEquivalentMultiplier('DAILY')).not.toBeCloseTo(30.44, 1)
+  })
 })
 
 describe('projectPlanContributionGrowth', () => {

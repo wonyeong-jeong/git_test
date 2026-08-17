@@ -3,7 +3,7 @@
  * 실제 매수 체결은 사용자가 별도로 입력하므로, 이 모듈은 순수하게 일정만 계산한다.
  */
 
-export type ContributionFrequency = 'MONTHLY' | 'WEEKLY'
+export type ContributionFrequency = 'MONTHLY' | 'WEEKLY' | 'DAILY'
 
 export interface ContributionScheduleInput {
   frequency: ContributionFrequency
@@ -43,6 +43,15 @@ export function generateScheduleEvents(
       events.push({ date: toIsoDate(cursor), plannedAmount: input.amount })
       cursor = addMonths(cursor, 1)
     }
+  } else if (input.frequency === 'DAILY') {
+    // 주식은 주말엔 거래가 안 되므로 "매일"은 영업일(월~금)만 뜻한다. 공휴일까지는 계산에
+    // 넣지 않는다(국가별 증시 휴장일 캘린더가 없어서) — 그래서 실제보다 며칠 더 많이 잡힐 수
+    // 있는 근사치다.
+    let cursor = nextBusinessDay(new Date(start))
+    while (cursor <= end) {
+      events.push({ date: toIsoDate(cursor), plannedAmount: input.amount })
+      cursor = nextBusinessDay(addDays(cursor, 1))
+    }
   } else {
     let cursor = new Date(start)
     while (cursor <= end) {
@@ -81,6 +90,13 @@ export function nextScheduledEvents(
       events.push({ date: toIsoDate(cursor), plannedAmount: input.amount })
       cursor = addMonths(cursor, 1)
     }
+  } else if (input.frequency === 'DAILY') {
+    let cursor = nextBusinessDay(new Date(start))
+    while (cursor < reference) cursor = nextBusinessDay(addDays(cursor, 1))
+    while (events.length < count && (!end || cursor <= end)) {
+      events.push({ date: toIsoDate(cursor), plannedAmount: input.amount })
+      cursor = nextBusinessDay(addDays(cursor, 1))
+    }
   } else {
     let cursor = new Date(start)
     while (cursor < reference) cursor = addDays(cursor, 7)
@@ -107,6 +123,14 @@ function addDays(date: Date, days: number): Date {
   const d = new Date(date)
   d.setDate(d.getDate() + days)
   return d
+}
+
+/** 토요일/일요일이면 그다음 월요일로 민다(주말엔 거래가 없으므로). 공휴일은 고려하지 않는다. */
+function nextBusinessDay(date: Date): Date {
+  const day = date.getDay()
+  if (day === 6) return addDays(date, 2)
+  if (day === 0) return addDays(date, 1)
+  return date
 }
 
 function toIsoDate(date: Date): string {

@@ -44,6 +44,7 @@ interface Props {
 }
 
 const CONTRIBUTION_TYPE_LABELS: Record<ContributionValueType, string> = { AMOUNT: '금액', QUANTITY: '수량' }
+const FREQUENCY_LABELS: Record<ContributionFrequency, string> = { MONTHLY: '매월', WEEKLY: '매주', DAILY: '매일' }
 
 const emptyForm = {
   holdingId: '',
@@ -166,11 +167,15 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
   // "등록 시점에 등록된 수량을 시작일부터 그대로 갖고 있었다"고 가정한다(보수적 추정 — 실제로는
   // 그 사이 조금씩 더 사 모았을 수도 있다).
   const [historicalPoints, setHistoricalPoints] = useState<{ date: string; value: number }[]>([])
+  // 내 보유수량과 무관한, 종목 자체의 순수 주가 등락(적립 시작일 종가 → 최근 종가) — "이 종목이
+  // 그동안 얼마나 올랐/내렸는지"를 보여주는 용도라, 수량이 섞인 historicalPoints와는 별개로 둔다.
+  const [stockPriceHistory, setStockPriceHistory] = useState<{ date: string; close: number }[]>([])
   const [historicalLoading, setHistoricalLoading] = useState(false)
 
   useEffect(() => {
     if (!selectedHolding || !selectedPlan) {
       setHistoricalPoints([])
+      setStockPriceHistory([])
       return
     }
     let cancelled = false
@@ -192,6 +197,7 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
           today
         )
         if (cancelled) return
+        setStockPriceHistory(prices)
         const quantityTimeline = buildQuantityTimeline(
           earliestDate,
           selectedHolding!.quantity,
@@ -201,7 +207,10 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
         setHistoricalPoints(series.map((p) => ({ date: p.date, value: p.historicalValue })))
       } catch {
         // 과거 시세 조회 실패는 조용히 무시 — 이 종목은 과거 구간 없이 미래 시뮬레이션만 보인다.
-        if (!cancelled) setHistoricalPoints([])
+        if (!cancelled) {
+          setHistoricalPoints([])
+          setStockPriceHistory([])
+        }
       } finally {
         if (!cancelled) setHistoricalLoading(false)
       }
@@ -213,6 +222,21 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedHolding?.id, selectedPlan?.id, selectedPlan?.startDate, purchases.length])
+
+  // 종목 자체의 등락률(적립 시작일 종가 대비 최근 종가) — 내 매매 타이밍과 무관한 순수 주가 성과
+  const stockReturn = useMemo(() => {
+    if (stockPriceHistory.length < 2) return null
+    const first = stockPriceHistory[0]
+    const last = stockPriceHistory[stockPriceHistory.length - 1]
+    if (first.close === 0) return null
+    return {
+      startDate: first.date,
+      startPrice: first.close,
+      endDate: last.date,
+      endPrice: last.close,
+      changePercent: ((last.close - first.close) / first.close) * 100
+    }
+  }, [stockPriceHistory])
 
   // 미래 시뮬레이션의 시작점(0개월차) — 실제 과거 시세를 복원했으면 그 마지막(=가장 최근) 값을
   // 쓴다(그래야 "지금까지 실제 성과"에서 이어지지, 원금으로 리셋되지 않는다). 못 구했으면 기존
@@ -363,6 +387,7 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
           >
             <option value="MONTHLY">매월</option>
             <option value="WEEKLY">매주</option>
+            <option value="DAILY">매일 (영업일 기준)</option>
           </select>
         </label>
         <label>
@@ -563,7 +588,7 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
             >
               <strong>{p.name}</strong>
               <span className="muted">
-                {p.frequency === 'MONTHLY' ? '매월' : '매주'}{' '}
+                {FREQUENCY_LABELS[p.frequency]}{' '}
                 {p.contributionType === 'QUANTITY'
                   ? `${formatQuantity(p.amount)}주`
                   : formatMoney(p.amount, planHolding?.currency ?? 'KRW')}{' '}
@@ -581,6 +606,28 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
         {selectedPlan && projection && position && (
           <section className="card simulation-panel">
             <h2>{selectedPlan.name} — 기간/금액 조정 시뮬레이션</h2>
+
+            {stockReturn ? (
+              <p style={{ marginTop: -4, marginBottom: 8 }}>
+                <span className="muted small">
+                  종목 자체 등락률 ({stockReturn.startDate} → {stockReturn.endDate}, 내 매수 타이밍과 무관한 순수 주가 성과):
+                </span>{' '}
+                <span className={stockReturn.changePercent >= 0 ? 'num-positive' : 'num-negative'}>
+                  {stockReturn.changePercent >= 0 ? '+' : ''}
+                  {stockReturn.changePercent.toFixed(1)}%
+                </span>{' '}
+                <span className="muted small">
+                  ({formatMoney(stockReturn.startPrice, selectedHolding?.currency ?? 'KRW')} →{' '}
+                  {formatMoney(stockReturn.endPrice, selectedHolding?.currency ?? 'KRW')})
+                </span>
+              </p>
+            ) : (
+              historicalLoading && (
+                <p className="muted small" style={{ marginTop: -4, marginBottom: 8 }}>
+                  종목 자체 등락률 조회 중…
+                </p>
+              )
+            )}
 
             <p className="muted small" style={{ marginTop: -4, marginBottom: 4 }}>
               총 납입원금은 등록 시점 값에 '매매 이력'에 기록된 실제 매수/매도까지 반영해서 계산됩니다
@@ -654,16 +701,19 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                   value={amountOverride ?? selectedPlan.amount}
                   onChange={(e) => setAmountOverride(Number(e.target.value))}
                 />
-                {selectedPlan.frequency === 'WEEKLY' && (
+                {selectedPlan.frequency !== 'MONTHLY' && (
                   <span className="muted small">
-                    매주 적립 → 월 환산 약{' '}
+                    {FREQUENCY_LABELS[selectedPlan.frequency]} 적립 → 월 환산 약{' '}
                     {selectedPlan.contributionType === 'QUANTITY'
-                      ? `${formatQuantity((amountOverride ?? selectedPlan.amount) * monthlyEquivalentMultiplier('WEEKLY'))}주`
+                      ? `${formatQuantity((amountOverride ?? selectedPlan.amount) * monthlyEquivalentMultiplier(selectedPlan.frequency))}주`
                       : formatMoney(
-                          (amountOverride ?? selectedPlan.amount) * monthlyEquivalentMultiplier('WEEKLY') * fx,
+                          (amountOverride ?? selectedPlan.amount) * monthlyEquivalentMultiplier(selectedPlan.frequency) * fx,
                           displayCurrency
                         )}
-                    {' '}(1개월 ≈ 4.35주로 계산)
+                    {' '}
+                    {selectedPlan.frequency === 'WEEKLY'
+                      ? '(1개월 ≈ 4.35주로 계산)'
+                      : '(1개월 ≈ 영업일 21.7일로 계산, 공휴일 제외 안 함)'}
                   </span>
                 )}
               </label>

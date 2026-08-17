@@ -98,7 +98,7 @@ export function projectQuantityContributionGrowth(input: QuantityContributionInp
   return points
 }
 
-export type ContributionFrequency = 'MONTHLY' | 'WEEKLY'
+export type ContributionFrequency = 'MONTHLY' | 'WEEKLY' | 'DAILY'
 
 /**
  * 이 모듈의 복리 계산은 전부 "월" 단위로만 굴러간다(annualReturnRatePercent를 월率로 쪼개서
@@ -107,9 +107,15 @@ export type ContributionFrequency = 'MONTHLY' | 'WEEKLY'
  * 값으로 쓰면 실제 적립 속도를 4배 넘게 과소평가하게 된다(예: 매주 1주씩 사는 계획을
  * 매달 1주씩 사는 것처럼 계산해버림). 그래서 회당 값에 이 배수를 곱해 "월 환산 값"으로
  * 바꾼 뒤에만 projectContributionGrowth/projectQuantityContributionGrowth에 넘긴다.
+ *
+ * DAILY(매일 적립)는 주식 시장이 주말엔 안 열리므로 "영업일"만 센다 — 한 달 평균 일수
+ * (365.2425/12 ≈ 30.44일) 중 평일 비율(5/7)만큼만 실제 매수가 일어난다고 보고
+ * 30.44 × 5/7 ≈ 21.74회로 계산한다(공휴일은 반영하지 않은 근사치).
  */
 export function monthlyEquivalentMultiplier(frequency: ContributionFrequency): number {
-  return frequency === 'WEEKLY' ? 365.2425 / 7 / 12 : 1
+  if (frequency === 'WEEKLY') return 365.2425 / 7 / 12
+  if (frequency === 'DAILY') return (365.2425 / 12) * (5 / 7)
+  return 1
 }
 
 export interface PlanContributionInput {

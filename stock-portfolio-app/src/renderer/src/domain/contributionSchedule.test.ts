@@ -39,6 +39,29 @@ describe('generateScheduleEvents', () => {
     )
     expect(events.map((e) => e.date)).toEqual(['2026-01-01', '2026-01-08', '2026-01-15', '2026-01-22'])
   })
+
+  it('DAILY는 영업일(월~금)만 생성하고 주말은 건너뛴다', () => {
+    // 2026-01-01은 목요일 → 목,금,(토,일 건너뜀),월,화,수,목
+    const events = generateScheduleEvents(
+      { frequency: 'DAILY', amount: 10_000, startDate: '2026-01-01', endDate: '2026-01-08' }
+    )
+    expect(events.map((e) => e.date)).toEqual([
+      '2026-01-01',
+      '2026-01-02',
+      '2026-01-05',
+      '2026-01-06',
+      '2026-01-07',
+      '2026-01-08'
+    ])
+  })
+
+  it('DAILY 시작일이 주말이면 다음 월요일로 밀려서 시작한다', () => {
+    // 2026-01-03은 토요일
+    const events = generateScheduleEvents(
+      { frequency: 'DAILY', amount: 10_000, startDate: '2026-01-03', endDate: '2026-01-06' }
+    )
+    expect(events.map((e) => e.date)).toEqual(['2026-01-05', '2026-01-06'])
+  })
 })
 
 describe('nextScheduledEvents', () => {
@@ -82,5 +105,17 @@ describe('nextScheduledEvents', () => {
       5
     )
     expect(events.map((e) => e.date)).toEqual(['2026-09-01'])
+  })
+
+  it('DAILY도 기준일 이전 회차는 건너뛰고, 주말 없이 영업일만 반환한다', () => {
+    const events = nextScheduledEvents(
+      { frequency: 'DAILY', amount: 10_000, startDate: '2026-01-01' },
+      '2026-08-17',
+      5
+    )
+    expect(events).toHaveLength(5)
+    expect(events.every((e) => e.date >= '2026-08-17')).toBe(true)
+    const weekdays = events.map((e) => new Date(e.date + 'T00:00:00').getDay())
+    expect(weekdays.every((d) => d >= 1 && d <= 5)).toBe(true)
   })
 })
