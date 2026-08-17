@@ -135,3 +135,22 @@ export interface DividendInfo {
   lastDividendPaidAt: string | null
   lastExDividendAt: string | null
 }
+
+export interface StockNewsItem {
+  title: string
+  officeName: string
+  /** ISO 8601 (YYYY-MM-DDTHH:mm:00) */
+  publishedAt: string
+  url: string
+}
+
+export interface EtfSummary {
+  isEtf: boolean
+  issuerName: string | null
+  totalFeePercent: number | null
+  dividendYieldTtmPercent: number | null
+  returnRate1mPercent: number | null
+  returnRate3mPercent: number | null
+  returnRate1yPercent: number | null
+  navDeviationPercent: number | null
+}

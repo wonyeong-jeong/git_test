@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import type { DividendRecord, Holding, ManualPurchase } from '../../types'
+import type { DividendInfo, DividendRecord, EtfSummary, Holding, ManualPurchase, StockNewsItem } from '../../types'
 import { BROKER_LABELS } from '../../types'
 import StockAvatar from '../../components/StockAvatar'
 import AutoRefreshControls from '../../components/AutoRefreshControls'
@@ -39,6 +39,34 @@ export default function StockDetailPage({ profileId, holding, onBack }: Props): 
       .then((all) => setPurchases(all.filter((p) => p.holdingId === holding.id)))
     window.api.dividends.list(profileId).then((all) => setDividends(all.filter((d) => d.holdingId === holding.id)))
   }, [profileId, holding.id])
+
+  // 종목 관련 정보(뉴스/배당 자동조회/ETF 요약) — 전부 네이버 공개 데이터라 실패해도 조용히
+  // 비워두고, 이 화면의 핵심(내 보유 현황)에는 영향을 주지 않는다.
+  const [news, setNews] = useState<StockNewsItem[]>([])
+  const [newsLoading, setNewsLoading] = useState(false)
+  const [autoDividendInfo, setAutoDividendInfo] = useState<DividendInfo | null>(null)
+  const [etfSummary, setEtfSummary] = useState<EtfSummary | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setNewsLoading(true)
+    window.api.marketData
+      .getStockNews(holding.ticker, holding.currency, 8)
+      .then((items) => !cancelled && setNews(items))
+      .catch(() => !cancelled && setNews([]))
+      .finally(() => !cancelled && setNewsLoading(false))
+    window.api.marketData
+      .getDividendInfo(holding.ticker, holding.currency)
+      .then((info) => !cancelled && setAutoDividendInfo(info))
+      .catch(() => !cancelled && setAutoDividendInfo(null))
+    window.api.marketData
+      .getEtfSummary(holding.ticker, holding.currency)
+      .then((summary) => !cancelled && setEtfSummary(summary))
+      .catch(() => !cancelled && setEtfSummary(null))
+    return () => {
+      cancelled = true
+    }
+  }, [holding.ticker, holding.currency])
 
   // 이 종목 하나만 실시간 시세를 추적한다 — 보유종목/관심종목 페이지와 같은 훅을 재사용하므로
   // 장 시간 인식·연속 실패 시 자동 중지 동작이 그대로 적용된다.
@@ -186,6 +214,101 @@ export default function StockDetailPage({ profileId, holding, onBack }: Props): 
         </p>
       </div>
 
+      {etfSummary?.isEtf && (
+        <div className="card">
+          <h2 style={{ marginTop: 0, fontSize: 15 }}>ETF 정보</h2>
+          {etfSummary.issuerName != null ? (
+            <>
+              <div className="summary-cards">
+                <div className="summary-card">
+                  <span className="label">운용사</span>
+                  <span className="value">{etfSummary.issuerName}</span>
+                </div>
+                <div className="summary-card">
+                  <span className="label">총보수</span>
+                  <span className="value">{etfSummary.totalFeePercent?.toFixed(2)}%</span>
+                </div>
+                <div className="summary-card">
+                  <span className="label">배당수익률 (TTM)</span>
+                  <span className="value">{etfSummary.dividendYieldTtmPercent?.toFixed(2)}%</span>
+                </div>
+                <div className="summary-card">
+                  <span className="label">NAV 괴리율</span>
+                  <span className="value">{etfSummary.navDeviationPercent?.toFixed(2)}%</span>
+                </div>
+                <div className="summary-card">
+                  <span className="label">최근 1개월 수익률</span>
+                  <span className={`value ${(etfSummary.returnRate1mPercent ?? 0) >= 0 ? 'num-positive' : 'num-negative'}`}>
+                    {etfSummary.returnRate1mPercent?.toFixed(2)}%
+                  </span>
+                </div>
+                <div className="summary-card">
+                  <span className="label">최근 3개월 수익률</span>
+                  <span className={`value ${(etfSummary.returnRate3mPercent ?? 0) >= 0 ? 'num-positive' : 'num-negative'}`}>
+                    {etfSummary.returnRate3mPercent?.toFixed(2)}%
+                  </span>
+                </div>
+                <div className="summary-card highlight">
+                  <span className="label">최근 1년 수익률</span>
+                  <span className={`value ${(etfSummary.returnRate1yPercent ?? 0) >= 0 ? 'num-positive' : 'num-negative'}`}>
+                    {etfSummary.returnRate1yPercent?.toFixed(2)}%
+                  </span>
+                </div>
+              </div>
+              <p className="muted small" style={{ marginBottom: 0 }}>
+                구성종목별 정확한 보유 비중은 안정적으로 조회할 수 있는 공개 API를 찾지 못해 제공하지 못합니다 — 위
+                지표는 ETF 전체 요약치입니다.
+              </p>
+            </>
+          ) : (
+            <p className="muted small" style={{ marginBottom: 0 }}>
+              ETF로 확인되지만, 해외 ETF는 이 데이터 출처로는 운용사·보수·수익률 같은 세부 지표를 구할 수 없습니다
+              (구성종목 보유 비중도 마찬가지입니다).
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="card">
+        <h2 style={{ marginTop: 0, fontSize: 15 }}>배당 정보 (자동 조회)</h2>
+        {autoDividendInfo?.dividendPerShare != null ? (
+          <>
+            <div className="summary-cards">
+              <div className="summary-card">
+                <span className="label">최근 결산 주당배당금</span>
+                <span className="value">{formatMoney(autoDividendInfo.dividendPerShare, holding.currency)}</span>
+              </div>
+              <div className="summary-card">
+                <span className="label">배당수익률</span>
+                <span className="value">{autoDividendInfo.dividendYieldPercent?.toFixed(3)}%</span>
+              </div>
+              <div className="summary-card highlight">
+                <span className="label">보유수량 기준 예상 연간 배당금</span>
+                <span className="value">{formatMoney(autoDividendInfo.dividendPerShare * position.quantity, holding.currency)}</span>
+              </div>
+              {autoDividendInfo.lastDividendPaidAt && (
+                <div className="summary-card">
+                  <span className="label">최근 배당지급일</span>
+                  <span className="value">{autoDividendInfo.lastDividendPaidAt}</span>
+                </div>
+              )}
+              {autoDividendInfo.lastExDividendAt && (
+                <div className="summary-card">
+                  <span className="label">최근 배당락일</span>
+                  <span className="value">{autoDividendInfo.lastExDividendAt}</span>
+                </div>
+              )}
+            </div>
+            <p className="muted small" style={{ marginBottom: 0 }}>
+              네이버 금융의 최근 결산 기준 공개 데이터로 자동 계산한 추정치입니다. 아래 '과거 배당 내역'에 직접
+              기록한 실제 수령액과는 다를 수 있어요(그게 진짜 정확한 기록입니다).
+            </p>
+          </>
+        ) : (
+          <p className="empty-hint">배당 정보를 찾을 수 없어요 (무배당 종목이거나 조회에 실패했을 수 있어요).</p>
+        )}
+      </div>
+
       <p className="muted small" style={{ marginTop: -8, marginBottom: 16 }}>
         아래 그래프는 실제 주가 차트가 아닙니다 — 이 앱은 과거 시세(캔들) API를 쓰지 않아서, 대신 매수/매도 기록으로부터
         계산되는 <strong>투입원금</strong>과 <strong>보유수량</strong>의 실제 누적 추이를 보여줍니다.
@@ -285,6 +408,28 @@ export default function StockDetailPage({ profileId, holding, onBack }: Props): 
               </tbody>
             </table>
           </>
+        )}
+      </div>
+
+      <div className="card">
+        <h2 style={{ marginTop: 0, fontSize: 15 }}>
+          종목 뉴스{newsLoading && <span className="muted small" style={{ marginLeft: 8, fontWeight: 400 }}>불러오는 중…</span>}
+        </h2>
+        {news.length === 0 ? (
+          <p className="empty-hint">{newsLoading ? '조회 중이에요…' : '관련 뉴스를 찾을 수 없어요.'}</p>
+        ) : (
+          <ul className="upcoming-list">
+            {news.map((n) => (
+              <li key={n.url}>
+                <a href={n.url} target="_blank" rel="noreferrer">
+                  {n.title}
+                </a>{' '}
+                <span className="muted small">
+                  — {n.officeName} · {n.publishedAt.slice(0, 10)} {n.publishedAt.slice(11, 16)}
+                </span>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
     </div>

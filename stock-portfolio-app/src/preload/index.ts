@@ -9,7 +9,7 @@ import type {
   WatchlistItem
 } from '../main/types'
 import type { Quote } from '../main/broker/tossClient'
-import type { DividendInfo, FxRate, HistoricalPricePoint, IndexQuote } from '../main/marketData/naverClient'
+import type { DividendInfo, EtfSummary, FxRate, HistoricalPricePoint, IndexQuote, StockNewsItem } from '../main/marketData/naverClient'
 
 const api = {
   profiles: {
@@ -82,7 +82,11 @@ const api = {
     getHistoricalPrices: (ticker: string, currency: 'KRW' | 'USD', fromDate: string, toDate: string): Promise<HistoricalPricePoint[]> =>
       ipcRenderer.invoke('market-data:getHistoricalPrices', ticker, currency, fromDate, toDate),
     getDividendInfo: (ticker: string, currency: 'KRW' | 'USD'): Promise<DividendInfo | null> =>
-      ipcRenderer.invoke('market-data:getDividendInfo', ticker, currency)
+      ipcRenderer.invoke('market-data:getDividendInfo', ticker, currency),
+    getStockNews: (ticker: string, currency: 'KRW' | 'USD', pageSize?: number): Promise<StockNewsItem[]> =>
+      ipcRenderer.invoke('market-data:getStockNews', ticker, currency, pageSize),
+    getEtfSummary: (ticker: string, currency: 'KRW' | 'USD'): Promise<EtfSummary> =>
+      ipcRenderer.invoke('market-data:getEtfSummary', ticker, currency)
   }
 }
 

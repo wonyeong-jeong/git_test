@@ -477,7 +477,7 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
           <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
             <input
               type="number"
-              step="0.1"
+              step="0.01"
               min="0"
               value={form.assumedDividendYieldPercent}
               onChange={(e) => setForm({ ...form, assumedDividendYieldPercent: e.target.value })}
@@ -493,7 +493,9 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                 try {
                   const info = await window.api.marketData.getDividendInfo(formHolding.ticker, formHolding.currency)
                   if (info?.dividendYieldPercent != null) {
-                    setForm((f) => ({ ...f, assumedDividendYieldPercent: String(info.dividendYieldPercent) }))
+                    // 주당배당금 ÷ 현재가로 직접 계산한 정밀한 값이라 소수점이 길 수 있어
+                    // 소수점 3자리로 다듬어서 채운다(네이버가 자체 반올림한 1자리보다 훨씬 정밀함).
+                    setForm((f) => ({ ...f, assumedDividendYieldPercent: info.dividendYieldPercent!.toFixed(3) }))
                   }
                 } finally {
                   setFetchingDividendYield(false)

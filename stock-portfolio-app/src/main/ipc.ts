@@ -10,7 +10,14 @@ import {
 import type { AssetSnapshot, ContributionPlan, DividendRecord, Holding, ManualPurchase, WatchlistItem } from './types'
 import { clearCredentials, hasCredentials, saveCredentials } from './broker/credentialStore'
 import { getQuotes } from './broker/tossClient'
-import { getDividendInfo, getFxRates, getHistoricalPrices, getMajorIndices } from './marketData/naverClient'
+import {
+  getDividendInfo,
+  getEtfSummary,
+  getFxRates,
+  getHistoricalPrices,
+  getMajorIndices,
+  getStockNews
+} from './marketData/naverClient'
 
 export function registerIpcHandlers(): void {
   ipcMain.handle('profiles:list', () => listProfiles())
@@ -165,6 +172,10 @@ export function registerIpcHandlers(): void {
     getHistoricalPrices(ticker, currency, fromDate, toDate)
   )
   ipcMain.handle('market-data:getDividendInfo', (_e, ticker: string, currency: 'KRW' | 'USD') => getDividendInfo(ticker, currency))
+  ipcMain.handle('market-data:getStockNews', (_e, ticker: string, currency: 'KRW' | 'USD', pageSize?: number) =>
+    getStockNews(ticker, currency, pageSize)
+  )
+  ipcMain.handle('market-data:getEtfSummary', (_e, ticker: string, currency: 'KRW' | 'USD') => getEtfSummary(ticker, currency))
 
   ipcMain.handle('asset-snapshots:list', (_e, profileId: string) => getProfileData(profileId).assetSnapshots)
 

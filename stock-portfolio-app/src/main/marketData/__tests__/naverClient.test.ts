@@ -2,9 +2,11 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   getDividendInfo,
   getDomesticDailyPrices,
+  getEtfSummary,
   getFxRates,
   getHistoricalPrices,
   getMajorIndices,
+  getStockNews,
   resolveForeignSymbol
 } from '../naverClient'
 
@@ -195,5 +197,139 @@ describe('getDividendInfo', () => {
   it('해외 종목 심볼을 못 찾으면 null을 반환한다', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse({ items: [] })))
     expect(await getDividendInfo('NOPE', 'USD')).toBeNull()
+  })
+
+  it('국내: 현재가를 알 수 있으면 배당수익률을 네이버가 반올림한 값 대신 직접 계산한 정밀한 값으로 쓴다', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse({
+        totalInfos: [
+          { code: 'dividendYieldRatio', key: '배당수익률', value: '0.6%' }, // 네이버가 반올림한 값(소수점 1자리)
+          { code: 'dividend', key: '주당배당금', value: '1,668원' },
+          { code: 'lastClosePrice', key: '전일', value: '268,000' }
+        ]
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const info = await getDividendInfo('005930', 'KRW')
+    // 1668/268000*100 = 0.622...% — 네이버가 준 0.6%보다 더 정밀하다
+    expect(info?.dividendYieldPercent).toBeCloseTo(0.6224, 3)
+    expect(info?.dividendYieldPercent).not.toBe(0.6)
+  })
+
+  it('해외: closePrice가 있으면 마찬가지로 직접 계산한 정밀한 배당수익률을 쓴다', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ items: [{ code: 'AAPL', reutersCode: 'AAPL.O', nationCode: 'USA', category: 'stock' }] }))
+      .mockResolvedValueOnce(
+        jsonResponse({
+          closePrice: '305.93',
+          stockItemTotalInfos: [
+            { code: 'dividend', key: '주당배당금', value: '1.08' },
+            { code: 'dividendYieldRatio', key: '배당수익률', value: '0.4%' }
+          ]
+        })
+      )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const info = await getDividendInfo('AAPL', 'USD')
+    // 1.08/305.93*100 = 0.353...%
+    expect(info?.dividendYieldPercent).toBeCloseTo(0.3531, 3)
+  })
+})
+
+describe('getStockNews', () => {
+  it('뉴스 클러스터 배열에서 대표 기사(items[0])만 뽑아 날짜를 ISO로 변환한다', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse([
+        {
+          total: 1,
+          items: [
+            {
+              title: '삼성전자 실적 발표',
+              officeName: '한국경제',
+              datetime: '202608171618',
+              mobileNewsUrl: 'https://n.news.naver.com/mnews/article/015/0005321564'
+            }
+          ]
+        }
+      ])
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    const news = await getStockNews('005930', 'KRW', 5)
+    expect(news).toEqual([
+      {
+        title: '삼성전자 실적 발표',
+        officeName: '한국경제',
+        publishedAt: '2026-08-17T16:18:00',
+        url: 'https://n.news.naver.com/mnews/article/015/0005321564'
+      }
+    ])
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/news/stock/005930'), expect.anything())
+  })
+
+  it('해외 종목은 reutersCode로 변환한 뒤 조회한다', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ items: [{ code: 'AAPL', reutersCode: 'AAPL.O', nationCode: 'USA', category: 'stock' }] }))
+      .mockResolvedValueOnce(jsonResponse([]))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await getStockNews('AAPL', 'USD', 5)
+    expect(fetchMock).toHaveBeenLastCalledWith(expect.stringContaining('/api/news/stock/AAPL.O'), expect.anything())
+  })
+
+  it('응답이 실패하면 에러를 던진다', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce({ ok: false, status: 500 }))
+    await expect(getStockNews('005930', 'KRW')).rejects.toThrow('종목 뉴스 조회 실패')
+  })
+})
+
+describe('getEtfSummary', () => {
+  it('국내 ETF는 etfKeyIndicator를 그대로 구조화해서 반환한다', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(
+      jsonResponse({
+        etfKeyIndicator: {
+          issuerName: '삼성자산운용(ETF)',
+          totalFee: 0.15,
+          dividendYieldTtm: 0.79,
+          returnRate1m: -1.23,
+          returnRate3m: -12.37,
+          returnRate1y: 147.59,
+          deviationRate: 0.35
+        }
+      })
+    )
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await getEtfSummary('069500', 'KRW')).toEqual({
+      isEtf: true,
+      issuerName: '삼성자산운용(ETF)',
+      totalFeePercent: 0.15,
+      dividendYieldTtmPercent: 0.79,
+      returnRate1mPercent: -1.23,
+      returnRate3mPercent: -12.37,
+      returnRate1yPercent: 147.59,
+      navDeviationPercent: 0.35
+    })
+  })
+
+  it('일반 주식(ETF 아님)은 etfKeyIndicator가 없어 isEtf:false를 반환한다', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(jsonResponse({})))
+    const summary = await getEtfSummary('005930', 'KRW')
+    expect(summary.isEtf).toBe(false)
+  })
+
+  it('해외 ETF는 isEtf 플래그만 확인되고 세부 지표는 null이다', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse({ items: [{ code: 'QLD', reutersCode: 'QLD', nationCode: 'USA', category: 'stock' }] }))
+      .mockResolvedValueOnce(jsonResponse({ isEtf: true }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const summary = await getEtfSummary('QLD', 'USD')
+    expect(summary.isEtf).toBe(true)
+    expect(summary.totalFeePercent).toBeNull()
   })
 })

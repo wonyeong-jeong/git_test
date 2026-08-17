@@ -230,6 +230,19 @@ function findValue(items: TotalInfoItem[], code: string): string | undefined {
   return items.find((i) => i.code === code)?.value
 }
 
+/**
+ * 네이버가 주는 배당수익률(dividendYieldRatio)은 표시용으로 반올림된 값이라 소수점 한 자리만
+ * 나오는 경우가 많다(예: "0.6%"). 같은 응답에 있는 주당배당금 ÷ 현재가를 직접 나누면 훨씬
+ * 정밀한 값을 얻을 수 있어서, 두 값을 다 구할 수 있을 땐 이 직접 계산값을 우선 쓴다 — 네이버가
+ * 반올림해서 잃어버린 소수점을 이렇게 보완한다. 어느 한쪽이라도 없으면 네이버 값 그대로 쓴다.
+ */
+function preciseDividendYieldPercent(dividendPerShare: number | null, closePrice: number | null, fallback: number | null): number | null {
+  if (dividendPerShare != null && closePrice != null && closePrice > 0) {
+    return (dividendPerShare / closePrice) * 100
+  }
+  return fallback
+}
+
 async function getDomesticDividendInfo(code: string): Promise<DividendInfo | null> {
   const res = await fetch(`https://m.stock.naver.com/api/stock/${encodeURIComponent(code)}/integration`, {
     headers: REQUEST_HEADERS
@@ -237,9 +250,11 @@ async function getDomesticDividendInfo(code: string): Promise<DividendInfo | nul
   if (!res.ok) return null
   const data = (await res.json()) as { totalInfos?: TotalInfoItem[] }
   const items = data.totalInfos ?? []
+  const dividendPerShare = parseMoneyValue(findValue(items, 'dividend'))
+  const closePrice = parseMoneyValue(findValue(items, 'lastClosePrice'))
   return {
-    dividendPerShare: parseMoneyValue(findValue(items, 'dividend')),
-    dividendYieldPercent: parseMoneyValue(findValue(items, 'dividendYieldRatio')),
+    dividendPerShare,
+    dividendYieldPercent: preciseDividendYieldPercent(dividendPerShare, closePrice, parseMoneyValue(findValue(items, 'dividendYieldRatio'))),
     lastDividendPaidAt: null,
     lastExDividendAt: null
   }
@@ -252,11 +267,13 @@ async function getForeignDividendInfo(ticker: string): Promise<DividendInfo | nu
     headers: REQUEST_HEADERS
   })
   if (!res.ok) return null
-  const data = (await res.json()) as { stockItemTotalInfos?: TotalInfoItem[] }
+  const data = (await res.json()) as { stockItemTotalInfos?: TotalInfoItem[]; closePrice?: string }
   const items = data.stockItemTotalInfos ?? []
+  const dividendPerShare = parseMoneyValue(findValue(items, 'dividend'))
+  const closePrice = parseMoneyValue(data.closePrice)
   return {
-    dividendPerShare: parseMoneyValue(findValue(items, 'dividend')),
-    dividendYieldPercent: parseMoneyValue(findValue(items, 'dividendYieldRatio')),
+    dividendPerShare,
+    dividendYieldPercent: preciseDividendYieldPercent(dividendPerShare, closePrice, parseMoneyValue(findValue(items, 'dividendYieldRatio'))),
     lastDividendPaidAt: toIsoDateFromDotted(findValue(items, 'dividendAt')),
     lastExDividendAt: toIsoDateFromDotted(findValue(items, 'exDividendAt'))
   }
@@ -264,4 +281,128 @@ async function getForeignDividendInfo(ticker: string): Promise<DividendInfo | nu
 
 export async function getDividendInfo(ticker: string, currency: 'KRW' | 'USD'): Promise<DividendInfo | null> {
   return currency === 'USD' ? getForeignDividendInfo(ticker) : getDomesticDividendInfo(ticker)
+}
+
+/**
+ * 종목 뉴스 — 네이버 모바일 증권의 뉴스 API를 그대로 쓴다. 응답은 "뉴스 클러스터"의 배열이고
+ * (관련 기사끼리 묶은 것), 각 클러스터의 대표 기사 하나(items[0])만 뽑아서 보여준다. 국내/해외
+ * 종목 둘 다 같은 엔드포인트를 코드만 바꿔서 쓸 수 있다.
+ */
+export interface StockNewsItem {
+  title: string
+  officeName: string
+  /** ISO 8601 (YYYY-MM-DDTHH:mm:00) */
+  publishedAt: string
+  url: string
+}
+
+interface RawNewsGroup {
+  items?: Array<{ title: string; officeName: string; datetime: string; mobileNewsUrl: string }>
+}
+
+/** "202608171618" (YYYYMMDDHHmm) → ISO 문자열 */
+function newsDatetimeToIso(raw: string): string {
+  if (raw.length < 12) return raw
+  return `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}T${raw.slice(8, 10)}:${raw.slice(10, 12)}:00`
+}
+
+async function fetchStockNews(code: string, pageSize: number): Promise<StockNewsItem[]> {
+  const res = await fetch(`https://m.stock.naver.com/api/news/stock/${encodeURIComponent(code)}?pageSize=${pageSize}&page=1`, {
+    headers: REQUEST_HEADERS
+  })
+  if (!res.ok) throw new Error(`종목 뉴스 조회 실패 (${res.status})`)
+  const data = (await res.json()) as RawNewsGroup[]
+  return data
+    .map((group) => group.items?.[0])
+    .filter((item): item is NonNullable<typeof item> => item != null)
+    .map((item) => ({
+      title: item.title,
+      officeName: item.officeName,
+      publishedAt: newsDatetimeToIso(item.datetime),
+      url: item.mobileNewsUrl
+    }))
+}
+
+export async function getStockNews(ticker: string, currency: 'KRW' | 'USD', pageSize = 10): Promise<StockNewsItem[]> {
+  if (currency === 'USD') {
+    const reutersCode = await resolveForeignSymbol(ticker)
+    if (!reutersCode) return []
+    return fetchStockNews(reutersCode, pageSize)
+  }
+  return fetchStockNews(ticker, pageSize)
+}
+
+/**
+ * ETF 요약 정보 — "ETF면 보유비중 같은 걸 보여줬으면" 요청에 대한 답. 구성종목별 정확한 보유
+ * 비중(PDF/포트폴리오 상세)까지는 공개적으로 안정된 API를 찾지 못해서 제공하지 못한다 — 대신
+ * 네이버가 국내 ETF에 한해 제공하는 요약 지표(운용사, 총보수, TTM 배당수익률, 기간별 수익률,
+ * NAV 괴리율)를 보여준다. 해외 ETF는 "ETF다"라는 사실 자체(isEtf)만 확인 가능하고 그 이상의
+ * 수치는 이 데이터 출처로는 못 구한다.
+ */
+export interface EtfSummary {
+  isEtf: boolean
+  issuerName: string | null
+  totalFeePercent: number | null
+  dividendYieldTtmPercent: number | null
+  returnRate1mPercent: number | null
+  returnRate3mPercent: number | null
+  returnRate1yPercent: number | null
+  navDeviationPercent: number | null
+}
+
+interface RawEtfKeyIndicator {
+  issuerName?: string
+  totalFee?: number
+  dividendYieldTtm?: number
+  returnRate1m?: number
+  returnRate3m?: number
+  returnRate1y?: number
+  deviationRate?: number
+}
+
+function emptyEtfSummary(isEtf = false): EtfSummary {
+  return {
+    isEtf,
+    issuerName: null,
+    totalFeePercent: null,
+    dividendYieldTtmPercent: null,
+    returnRate1mPercent: null,
+    returnRate3mPercent: null,
+    returnRate1yPercent: null,
+    navDeviationPercent: null
+  }
+}
+
+async function getDomesticEtfSummary(code: string): Promise<EtfSummary> {
+  const res = await fetch(`https://m.stock.naver.com/api/stock/${encodeURIComponent(code)}/integration`, {
+    headers: REQUEST_HEADERS
+  })
+  if (!res.ok) return emptyEtfSummary()
+  const data = (await res.json()) as { etfKeyIndicator?: RawEtfKeyIndicator }
+  const k = data.etfKeyIndicator
+  if (!k) return emptyEtfSummary()
+  return {
+    isEtf: true,
+    issuerName: k.issuerName ?? null,
+    totalFeePercent: k.totalFee ?? null,
+    dividendYieldTtmPercent: k.dividendYieldTtm ?? null,
+    returnRate1mPercent: k.returnRate1m ?? null,
+    returnRate3mPercent: k.returnRate3m ?? null,
+    returnRate1yPercent: k.returnRate1y ?? null,
+    navDeviationPercent: k.deviationRate ?? null
+  }
+}
+
+async function getForeignEtfSummary(ticker: string): Promise<EtfSummary> {
+  const reutersCode = await resolveForeignSymbol(ticker)
+  if (!reutersCode) return emptyEtfSummary()
+  const res = await fetch(`https://api.stock.naver.com/stock/${encodeURIComponent(reutersCode)}/basic`, { headers: REQUEST_HEADERS })
+  if (!res.ok) return emptyEtfSummary()
+  const data = (await res.json()) as { isEtf?: boolean }
+  // 해외 ETF는 이 출처로는 "ETF다"라는 사실만 확인되고, 보수·수익률 등 세부 지표는 못 구한다.
+  return emptyEtfSummary(data.isEtf === true)
+}
+
+export async function getEtfSummary(ticker: string, currency: 'KRW' | 'USD'): Promise<EtfSummary> {
+  return currency === 'USD' ? getForeignEtfSummary(ticker) : getDomesticEtfSummary(ticker)
 }
