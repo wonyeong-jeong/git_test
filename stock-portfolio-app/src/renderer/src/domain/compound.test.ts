@@ -33,6 +33,37 @@ describe('projectContributionGrowth', () => {
     expect(last.value).toBeCloseTo(expected, 4)
   })
 
+  it('initialValue를 주면 원금(contributed)과 별개로 평가금액(value)이 그 값에서 시작해서 복리로 이어진다', () => {
+    const points = projectContributionGrowth({
+      initialPrincipal: 1_000_000, // 실제로 넣은 돈(원가)
+      initialValue: 1_200_000, // 지금 실제 시세 기준 평가금액(원가보다 올라 있는 상태)
+      monthlyContribution: 0,
+      annualReturnRatePercent: 0,
+      months: 3
+    })
+    expect(points[0]).toEqual({ month: 0, contributed: 1_000_000, value: 1_200_000 })
+    // 이후로도 원금이 아니라 initialValue에서부터 복리가 이어진다(0% 수익률이라 그대로 유지)
+    expect(points[3].value).toBeCloseTo(1_200_000, 6)
+    expect(points[3].contributed).toBe(1_000_000)
+  })
+
+  it('initialValue를 생략하면 initialPrincipal과 동일하게 시작한다(기존 동작 그대로)', () => {
+    const withValue = projectContributionGrowth({
+      initialPrincipal: 500_000,
+      monthlyContribution: 0,
+      annualReturnRatePercent: 5,
+      months: 6
+    })
+    const explicit = projectContributionGrowth({
+      initialPrincipal: 500_000,
+      initialValue: 500_000,
+      monthlyContribution: 0,
+      annualReturnRatePercent: 5,
+      months: 6
+    })
+    expect(withValue).toEqual(explicit)
+  })
+
   it('month 배열 길이는 months+1 (0개월 시점 포함)', () => {
     const points = projectContributionGrowth({
       initialPrincipal: 0,

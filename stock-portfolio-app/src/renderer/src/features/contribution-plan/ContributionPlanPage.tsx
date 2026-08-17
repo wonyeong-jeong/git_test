@@ -16,11 +16,27 @@ import {
   projectPlanContributionGrowth,
   summarizeExpectedReturn
 } from '../../domain/compound'
-import { generateScheduleEvents } from '../../domain/contributionSchedule'
+import { nextScheduledEvents } from '../../domain/contributionSchedule'
+import { buildHistoricalValueSeries, buildQuantityTimeline } from '../../domain/historicalValuation'
 import { deriveCurrentPosition } from '../../domain/position'
 import { DEFAULT_TAX_ASSUMPTIONS, calculateCapitalGainsTax, type Market } from '../../domain/tax'
 import { useFxRates } from '../../hooks/useFxRates'
 import { formatAxisTick, formatMoney, formatQuantity } from '../../utils/format'
+
+/** date(YYYY-MM-DD)에 개월수를 더한다. 미래 시뮬레이션의 month 인덱스를 실제 달력 날짜로
+ * 바꿔서, 과거(실제 시세 기반) 구간과 같은 날짜 축에 이어 그릴 수 있게 한다. */
+function addMonthsIso(dateIso: string, months: number): string {
+  const d = new Date(dateIso + 'T00:00:00')
+  const targetDay = d.getDate()
+  d.setDate(1)
+  d.setMonth(d.getMonth() + months)
+  const daysInTargetMonth = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate()
+  d.setDate(Math.min(targetDay, daysInTargetMonth))
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
 
 interface Props {
   profileId: string
@@ -139,6 +155,61 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
     return deriveCurrentPosition(selectedHolding, holdingPurchases)
   }, [selectedHolding, purchases])
 
+  // "지금까지 상승 그래프 + 앞으로 예상 그래프를 합쳐서" — 선택한 종목의 실제 과거 시세를
+  // 가져와서, 등록일부터 오늘까지 "그 날짜에 몇 주를 들고 있었나 × 그 날짜 종가"로 실제
+  // 평가금액 곡선을 복원한다(과거부터 모아온 종목도 이 구간이 전부 채워진다).
+  const [historicalPoints, setHistoricalPoints] = useState<{ date: string; value: number }[]>([])
+  const [historicalLoading, setHistoricalLoading] = useState(false)
+
+  useEffect(() => {
+    if (!selectedHolding) {
+      setHistoricalPoints([])
+      return
+    }
+    let cancelled = false
+
+    async function loadHistorical(): Promise<void> {
+      setHistoricalLoading(true)
+      try {
+        const holdingPurchases = purchases.filter((p) => p.holdingId === selectedHolding!.id)
+        const earliestDate = [selectedHolding!.createdAt.slice(0, 10), ...holdingPurchases.map((p) => p.date)].sort()[0]
+        const today = new Date().toISOString().slice(0, 10)
+        const prices = await window.api.marketData.getHistoricalPrices(
+          selectedHolding!.ticker,
+          selectedHolding!.currency,
+          earliestDate,
+          today
+        )
+        if (cancelled) return
+        const quantityTimeline = buildQuantityTimeline(
+          selectedHolding!.createdAt.slice(0, 10),
+          selectedHolding!.quantity,
+          holdingPurchases.map((p) => ({ date: p.date, side: p.side, quantity: p.quantity }))
+        )
+        const series = buildHistoricalValueSeries([{ quantityTimeline, pricePoints: prices }])
+        setHistoricalPoints(series.map((p) => ({ date: p.date, value: p.historicalValue })))
+      } catch {
+        // 과거 시세 조회 실패는 조용히 무시 — 이 종목은 과거 구간 없이 미래 시뮬레이션만 보인다.
+        if (!cancelled) setHistoricalPoints([])
+      } finally {
+        if (!cancelled) setHistoricalLoading(false)
+      }
+    }
+
+    loadHistorical()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedHolding?.id, purchases.length])
+
+  // 미래 시뮬레이션의 시작점(0개월차) — 실제 과거 시세를 복원했으면 그 마지막(=가장 최근) 값을
+  // 쓴다(그래야 "지금까지 실제 성과"에서 이어지지, 원금으로 리셋되지 않는다). 못 구했으면 기존
+  // 방식대로 투입원금을 시작값으로 쓴다.
+  const lastHistoricalPoint = historicalPoints.length > 0 ? historicalPoints[historicalPoints.length - 1] : null
+  const baseValue = lastHistoricalPoint?.value ?? position?.totalCost ?? 0
+  const baseDate = lastHistoricalPoint?.date ?? new Date().toISOString().slice(0, 10)
+
   const convert = selectedHolding?.currency === 'USD' && showKrw && usdKrw != null
   const fx = convert ? usdKrw : 1
   const displayCurrency = convert ? 'KRW' : (selectedHolding?.currency ?? 'KRW')
@@ -153,11 +224,28 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
       value,
       referencePrice: position.avgPrice,
       initialPrincipal: position.totalCost,
+      initialValue: baseValue,
       annualReturnRatePercent,
       months: monthsHorizon
     })
     return { points, summary: summarizeExpectedReturn(points) }
-  }, [selectedPlan, selectedHolding, position, monthsHorizon, amountOverride, returnOverride])
+  }, [selectedPlan, selectedHolding, position, monthsHorizon, amountOverride, returnOverride, baseValue])
+
+  // 과거(실제 시세 기반) 구간 + 미래(시뮬레이션) 구간을 하나의 날짜 축으로 합친다. 미래 쪽은
+  // month 인덱스를 baseDate(=과거 구간의 마지막 날짜, 없으면 오늘) 기준 실제 날짜로 변환한다.
+  const combinedChartData = useMemo(() => {
+    if (!projection) return []
+    const byDate = new Map<string, { date: string; actualValue?: number; projectedValue?: number; projectedContributed?: number }>()
+    for (const p of historicalPoints) {
+      byDate.set(p.date, { ...(byDate.get(p.date) ?? { date: p.date }), actualValue: p.value })
+    }
+    for (const p of projection.points) {
+      const date = addMonthsIso(baseDate, p.month)
+      const existing = byDate.get(date) ?? { date }
+      byDate.set(date, { ...existing, projectedValue: p.value, projectedContributed: p.contributed })
+    }
+    return [...byDate.values()].sort((a, b) => a.date.localeCompare(b.date))
+  }, [historicalPoints, projection, baseDate])
 
   // 활성화된 계획 전체를 (통화 상관없이) 원화 하나로 합쳐서 보는 요약 카드용 — 종목별/통화별
   // 자세한 비교는 '포트폴리오 합산 시뮬레이션' 탭이 담당하고, 여기서는 "지금 계획대로 계속하면
@@ -215,7 +303,10 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
 
   const upcomingEvents = useMemo(() => {
     if (!selectedPlan) return []
-    return generateScheduleEvents(
+    // startDate가 과거(이미 예전부터 모아온 종목)여도 이미 지난 회차는 건너뛰고, 오늘 이후의
+    // 진짜 "다음" 회차만 보여준다 — 예전엔 시작일부터 순서대로 나열해서, 과거부터 시작한
+    // 계획을 누르면 몇 달 전 회차들이 "다음 예정"이라고 잘못 나왔었다.
+    return nextScheduledEvents(
       {
         frequency: selectedPlan.frequency,
         amount: amountOverride ?? selectedPlan.amount,
@@ -223,8 +314,9 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
         endDate: selectedPlan.endDate,
         dayOfMonth: selectedPlan.dayOfMonth
       },
-      3
-    ).slice(0, 5)
+      new Date().toISOString().slice(0, 10),
+      5
+    )
   }, [selectedPlan, amountOverride])
 
   return (
@@ -479,12 +571,18 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
           <section className="card simulation-panel">
             <h2>{selectedPlan.name} — 기간/금액 조정 시뮬레이션</h2>
 
-            <p className="muted small" style={{ marginTop: -4 }}>
+            <p className="muted small" style={{ marginTop: -4, marginBottom: 4 }}>
               총 납입원금은 등록 시점 값에 '매매 이력'에 기록된 실제 매수/매도까지 반영해서 계산됩니다
               {position.quantity !== selectedHolding?.quantity && (
                 <> (현재 {formatQuantity(position.quantity)}주, 평단가 {formatMoney(position.avgPrice, selectedHolding?.currency ?? 'KRW')})</>
               )}
               .
+            </p>
+            <p className="muted small" style={{ marginTop: 0 }}>
+              아래 그래프의 <strong>실제 평가금액(과거)</strong>은 등록일부터 오늘까지 실제 시세로 복원한 값이고,{' '}
+              <strong>예상 평가금액/납입원금(향후)</strong>은 그 마지막 지점에서 이어서 가정수익률로 미래를 시뮬레이션한
+              값입니다 — 지금까지의 실제 성과와 앞으로의 예상이 하나로 이어집니다.
+              {historicalLoading && ' 과거 시세 불러오는 중…'}
             </p>
 
             {selectedHolding?.currency === 'USD' && (
@@ -649,17 +747,38 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
 
             <div style={{ width: '100%', height: 320 }}>
               <ResponsiveContainer>
-                <LineChart data={projection.points}>
+                <LineChart data={combinedChartData}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="month" label={{ value: '개월', position: 'insideBottomRight', offset: -5 }} />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} />
                   <YAxis tickFormatter={(v) => formatAxisTick(v * fx, displayCurrency)} />
-                  <Tooltip
-                    formatter={(v: number) => formatMoney(v * fx, displayCurrency)}
-                    labelFormatter={(m) => `${m}개월차`}
-                  />
+                  <Tooltip formatter={(v: number) => formatMoney(v * fx, displayCurrency)} />
                   <Legend />
-                  <Line type="monotone" dataKey="contributed" name="납입원금" stroke="#ADB5BD" dot={false} />
-                  <Line type="monotone" dataKey="value" name="평가금액" stroke="#3182F6" dot={false} strokeWidth={2} />
+                  <Line
+                    type="monotone"
+                    dataKey="actualValue"
+                    name="실제 평가금액 (과거, 실제 시세 기반)"
+                    stroke="#12B886"
+                    strokeWidth={2}
+                    dot={false}
+                    connectNulls
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="projectedContributed"
+                    name="예상 납입원금 (향후)"
+                    stroke="#ADB5BD"
+                    dot={false}
+                    connectNulls
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="projectedValue"
+                    name="예상 평가금액 (향후)"
+                    stroke="#3182F6"
+                    strokeWidth={2}
+                    dot={false}
+                    connectNulls
+                  />
                 </LineChart>
               </ResponsiveContainer>
             </div>

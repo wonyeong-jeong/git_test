@@ -54,6 +54,45 @@ export function generateScheduleEvents(
   return events
 }
 
+/**
+ * "다음 예정 매수 회차" 전용. generateScheduleEvents는 시작일부터 순서대로 전부 나열하는
+ * 함수라(캘린더에 전체 일정을 그리는 용도), startDate가 훨씬 과거인 계획(예: 이미 몇 달 전부터
+ * 모아온 종목)에 그대로 쓰면 "다음 회차"라는 이름과 달리 이미 지나간 옛날 회차들이 나온다 —
+ * 이 함수는 referenceDate(보통 오늘) 이전 회차는 전부 건너뛰고, 그 이후 회차만 정확히 count개
+ * 돌려준다. 원래 주기(요일/일자)는 startDate 기준 그대로 유지되므로 "다음 회차가 언제인지"가
+ * 정확하다.
+ */
+export function nextScheduledEvents(
+  input: ContributionScheduleInput,
+  referenceDate: string,
+  count: number
+): ScheduledContributionEvent[] {
+  const reference = new Date(referenceDate + 'T00:00:00')
+  const start = new Date(input.startDate + 'T00:00:00')
+  const end = input.endDate ? new Date(input.endDate + 'T00:00:00') : null
+  const events: ScheduledContributionEvent[] = []
+
+  if (input.frequency === 'MONTHLY') {
+    const day = input.dayOfMonth ?? start.getDate()
+    let cursor = new Date(start.getFullYear(), start.getMonth(), day)
+    if (cursor < start) cursor = addMonths(cursor, 1)
+    while (cursor < reference) cursor = addMonths(cursor, 1)
+    while (events.length < count && (!end || cursor <= end)) {
+      events.push({ date: toIsoDate(cursor), plannedAmount: input.amount })
+      cursor = addMonths(cursor, 1)
+    }
+  } else {
+    let cursor = new Date(start)
+    while (cursor < reference) cursor = addDays(cursor, 7)
+    while (events.length < count && (!end || cursor <= end)) {
+      events.push({ date: toIsoDate(cursor), plannedAmount: input.amount })
+      cursor = addDays(cursor, 7)
+    }
+  }
+
+  return events
+}
+
 function addMonths(date: Date, months: number): Date {
   const d = new Date(date)
   const targetDay = d.getDate()

@@ -6,7 +6,7 @@
  */
 
 export interface CompoundProjectionInput {
-  /** 현재까지 모인 원금(이미 투자된 금액) */
+  /** 현재까지 모인 원금(이미 투자된 금액) — points[0].contributed의 시작값 */
   initialPrincipal: number
   /** 매월 적립액. 적립을 더 안 하는 시나리오는 0 */
   monthlyContribution: number
@@ -14,6 +14,11 @@ export interface CompoundProjectionInput {
   annualReturnRatePercent: number
   /** 시뮬레이션할 개월 수 */
   months: number
+  /** points[0].value의 시작값. 생략하면 initialPrincipal과 같다(원금 그대로 시작 = 기존 동작).
+   * 실제 과거 시세로 복원한 "지금 시점 진짜 평가금액"이 있을 때(원금과 다를 수 있음 — 그동안
+   * 오르거나 내렸을 테니) 그 값을 여기 넣으면, "지금까지의 실제 성과 + 여기서부터의 미래
+   * 시뮬레이션"이 매끄럽게 이어진다(ContributionPlanPage의 결합 그래프가 이렇게 쓴다). */
+  initialValue?: number
 }
 
 export interface CompoundProjectionPoint {
@@ -31,14 +36,14 @@ export function monthlyRateFromAnnualPercent(annualReturnRatePercent: number): n
 export function projectContributionGrowth(
   input: CompoundProjectionInput
 ): CompoundProjectionPoint[] {
-  const { initialPrincipal, monthlyContribution, annualReturnRatePercent, months } = input
+  const { initialPrincipal, monthlyContribution, annualReturnRatePercent, months, initialValue } = input
   const r = monthlyRateFromAnnualPercent(annualReturnRatePercent)
 
   const points: CompoundProjectionPoint[] = [
-    { month: 0, contributed: initialPrincipal, value: initialPrincipal }
+    { month: 0, contributed: initialPrincipal, value: initialValue ?? initialPrincipal }
   ]
 
-  let value = initialPrincipal
+  let value = initialValue ?? initialPrincipal
   let contributed = initialPrincipal
 
   for (let m = 1; m <= months; m++) {
@@ -60,6 +65,8 @@ export interface QuantityContributionInput {
   /** 가정 연 수익률 (%) — 매수 기준가도 이 비율로 함께 성장한다고 가정한다 */
   annualReturnRatePercent: number
   months: number
+  /** CompoundProjectionInput.initialValue와 동일한 의미 — 생략하면 initialPrincipal 그대로 시작 */
+  initialValue?: number
 }
 
 /**
@@ -69,14 +76,14 @@ export interface QuantityContributionInput {
  * 수량이 줄어드는 효과가 있는데, 이건 그 반대 시나리오다.)
  */
 export function projectQuantityContributionGrowth(input: QuantityContributionInput): CompoundProjectionPoint[] {
-  const { initialPrincipal, quantityPerContribution, referencePrice, annualReturnRatePercent, months } = input
+  const { initialPrincipal, quantityPerContribution, referencePrice, annualReturnRatePercent, months, initialValue } = input
   const r = monthlyRateFromAnnualPercent(annualReturnRatePercent)
 
   const points: CompoundProjectionPoint[] = [
-    { month: 0, contributed: initialPrincipal, value: initialPrincipal }
+    { month: 0, contributed: initialPrincipal, value: initialValue ?? initialPrincipal }
   ]
 
-  let value = initialPrincipal
+  let value = initialValue ?? initialPrincipal
   let contributed = initialPrincipal
   let estimatedPrice = referencePrice
 
@@ -115,6 +122,8 @@ export interface PlanContributionInput {
   initialPrincipal: number
   annualReturnRatePercent: number
   months: number
+  /** CompoundProjectionInput.initialValue와 동일한 의미 — 생략하면 initialPrincipal 그대로 시작 */
+  initialValue?: number
 }
 
 /**
@@ -123,7 +132,8 @@ export interface PlanContributionInput {
  * 진입점. 페이지마다 이 분기·환산 로직을 반복해서 만들지 않으려고 여기 하나로 모았다.
  */
 export function projectPlanContributionGrowth(input: PlanContributionInput): CompoundProjectionPoint[] {
-  const { contributionType, frequency, value, referencePrice, initialPrincipal, annualReturnRatePercent, months } = input
+  const { contributionType, frequency, value, referencePrice, initialPrincipal, annualReturnRatePercent, months, initialValue } =
+    input
   const monthlyValue = value * monthlyEquivalentMultiplier(frequency)
 
   if (contributionType === 'QUANTITY') {
@@ -132,14 +142,16 @@ export function projectPlanContributionGrowth(input: PlanContributionInput): Com
       quantityPerContribution: monthlyValue,
       referencePrice: referencePrice ?? 0,
       annualReturnRatePercent,
-      months
+      months,
+      initialValue
     })
   }
   return projectContributionGrowth({
     initialPrincipal,
     monthlyContribution: monthlyValue,
     annualReturnRatePercent,
-    months
+    months,
+    initialValue
   })
 }
 
