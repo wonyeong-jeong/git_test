@@ -155,14 +155,21 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
     return deriveCurrentPosition(selectedHolding, holdingPurchases)
   }, [selectedHolding, purchases])
 
-  // "지금까지 상승 그래프 + 앞으로 예상 그래프를 합쳐서" — 선택한 종목의 실제 과거 시세를
-  // 가져와서, 등록일부터 오늘까지 "그 날짜에 몇 주를 들고 있었나 × 그 날짜 종가"로 실제
-  // 평가금액 곡선을 복원한다(과거부터 모아온 종목도 이 구간이 전부 채워진다).
+  // "적립을 시작한 날짜를 기준으로 오늘까지는 과거 데이터, 이후엔 시뮬레이션" — 선택한 종목의
+  // 실제 과거 시세를 가져와서, "계획에 적어둔 적립 시작일"부터 오늘까지 "그 날짜에 몇 주를
+  // 들고 있었나 × 그 날짜 종가"로 실제 평가금액 곡선을 복원한다.
+  //
+  // 시작일 기준을 종목 등록일이 아니라 계획의 startDate로 잡는 이유: QLD처럼 "과거부터 모아온
+  // 종목"은 실제로 사고 모으기 시작한 날짜(예: 2월)와 이 앱에 종목을 등록한 날짜가 다를 수
+  // 있다 — 계획의 startDate가 "내가 적립을 시작한 날짜"를 나타낸다. 이 startDate가 종목
+  // 등록일보다 앞선다면, 그 구간은 매매 이력이 없어 정확한 날짜별 보유수량을 알 수 없으므로
+  // "등록 시점에 등록된 수량을 시작일부터 그대로 갖고 있었다"고 가정한다(보수적 추정 — 실제로는
+  // 그 사이 조금씩 더 사 모았을 수도 있다).
   const [historicalPoints, setHistoricalPoints] = useState<{ date: string; value: number }[]>([])
   const [historicalLoading, setHistoricalLoading] = useState(false)
 
   useEffect(() => {
-    if (!selectedHolding) {
+    if (!selectedHolding || !selectedPlan) {
       setHistoricalPoints([])
       return
     }
@@ -172,7 +179,11 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
       setHistoricalLoading(true)
       try {
         const holdingPurchases = purchases.filter((p) => p.holdingId === selectedHolding!.id)
-        const earliestDate = [selectedHolding!.createdAt.slice(0, 10), ...holdingPurchases.map((p) => p.date)].sort()[0]
+        const earliestDate = [
+          selectedHolding!.createdAt.slice(0, 10),
+          selectedPlan!.startDate,
+          ...holdingPurchases.map((p) => p.date)
+        ].sort()[0]
         const today = new Date().toISOString().slice(0, 10)
         const prices = await window.api.marketData.getHistoricalPrices(
           selectedHolding!.ticker,
@@ -182,7 +193,7 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
         )
         if (cancelled) return
         const quantityTimeline = buildQuantityTimeline(
-          selectedHolding!.createdAt.slice(0, 10),
+          earliestDate,
           selectedHolding!.quantity,
           holdingPurchases.map((p) => ({ date: p.date, side: p.side, quantity: p.quantity }))
         )
@@ -201,7 +212,7 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
       cancelled = true
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedHolding?.id, purchases.length])
+  }, [selectedHolding?.id, selectedPlan?.id, selectedPlan?.startDate, purchases.length])
 
   // 미래 시뮬레이션의 시작점(0개월차) — 실제 과거 시세를 복원했으면 그 마지막(=가장 최근) 값을
   // 쓴다(그래야 "지금까지 실제 성과"에서 이어지지, 원금으로 리셋되지 않는다). 못 구했으면 기존
@@ -579,9 +590,17 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
               .
             </p>
             <p className="muted small" style={{ marginTop: 0 }}>
-              아래 그래프의 <strong>실제 평가금액(과거)</strong>은 등록일부터 오늘까지 실제 시세로 복원한 값이고,{' '}
-              <strong>예상 평가금액/납입원금(향후)</strong>은 그 마지막 지점에서 이어서 가정수익률로 미래를 시뮬레이션한
-              값입니다 — 지금까지의 실제 성과와 앞으로의 예상이 하나로 이어집니다.
+              아래 그래프의 <strong>실제 평가금액(과거)</strong>은 이 계획의 적립 시작일({selectedPlan.startDate})부터
+              오늘까지 실제 시세로 복원한 값이고, <strong>예상 평가금액/납입원금(향후)</strong>은 그 마지막 지점에서
+              이어서 가정수익률로 미래를 시뮬레이션한 값입니다 — 지금까지의 실제 성과와 앞으로의 예상이 하나로
+              이어집니다.
+              {selectedHolding && selectedPlan.startDate < selectedHolding.createdAt.slice(0, 10) && (
+                <>
+                  {' '}
+                  단, 적립 시작일이 종목 등록일({selectedHolding.createdAt.slice(0, 10)})보다 빨라서, 그 사이 구간은
+                  실제 매매 이력이 없어 등록 시점 수량을 시작일부터 그대로 갖고 있었다고 가정한 추정치입니다.
+                </>
+              )}
               {historicalLoading && ' 과거 시세 불러오는 중…'}
             </p>
 
