@@ -7,7 +7,18 @@ import {
   getProfileData,
   saveProfileData
 } from './store'
-import type { AssetSnapshot, ContributionPlan, DividendRecord, Holding, ManualPurchase, WatchlistItem } from './types'
+import type {
+  AssetSnapshot,
+  ContributionPlan,
+  DividendRecord,
+  FinancialGoal,
+  Holding,
+  IncomeSource,
+  Loan,
+  ManualPurchase,
+  SavingsAccount,
+  WatchlistItem
+} from './types'
 import { clearCredentials, hasCredentials, saveCredentials } from './broker/credentialStore'
 import { getQuotes } from './broker/tossClient'
 import {
@@ -203,5 +214,76 @@ export function registerIpcHandlers(): void {
     data.assetSnapshots.push(snapshot)
     saveProfileData(profileId, data)
     return snapshot
+  })
+
+  // ---------- 재무 정보(월급/적금/대출) & 목표 ----------
+
+  ipcMain.handle('income-sources:list', (_e, profileId: string) => getProfileData(profileId).incomeSources)
+  ipcMain.handle(
+    'income-sources:create',
+    (_e, profileId: string, input: Omit<IncomeSource, 'id' | 'profileId' | 'createdAt'>) => {
+      const data = getProfileData(profileId)
+      const item: IncomeSource = { ...input, id: randomUUID(), profileId, createdAt: new Date().toISOString() }
+      data.incomeSources.push(item)
+      saveProfileData(profileId, data)
+      return item
+    }
+  )
+  ipcMain.handle('income-sources:delete', (_e, profileId: string, itemId: string) => {
+    const data = getProfileData(profileId)
+    data.incomeSources = data.incomeSources.filter((i) => i.id !== itemId)
+    saveProfileData(profileId, data)
+    return true
+  })
+
+  ipcMain.handle('savings-accounts:list', (_e, profileId: string) => getProfileData(profileId).savingsAccounts)
+  ipcMain.handle(
+    'savings-accounts:create',
+    (_e, profileId: string, input: Omit<SavingsAccount, 'id' | 'profileId' | 'createdAt'>) => {
+      const data = getProfileData(profileId)
+      const item: SavingsAccount = { ...input, id: randomUUID(), profileId, createdAt: new Date().toISOString() }
+      data.savingsAccounts.push(item)
+      saveProfileData(profileId, data)
+      return item
+    }
+  )
+  ipcMain.handle('savings-accounts:delete', (_e, profileId: string, itemId: string) => {
+    const data = getProfileData(profileId)
+    data.savingsAccounts = data.savingsAccounts.filter((i) => i.id !== itemId)
+    saveProfileData(profileId, data)
+    return true
+  })
+
+  ipcMain.handle('loans:list', (_e, profileId: string) => getProfileData(profileId).loans)
+  ipcMain.handle('loans:create', (_e, profileId: string, input: Omit<Loan, 'id' | 'profileId' | 'createdAt'>) => {
+    const data = getProfileData(profileId)
+    const item: Loan = { ...input, id: randomUUID(), profileId, createdAt: new Date().toISOString() }
+    data.loans.push(item)
+    saveProfileData(profileId, data)
+    return item
+  })
+  ipcMain.handle('loans:delete', (_e, profileId: string, itemId: string) => {
+    const data = getProfileData(profileId)
+    data.loans = data.loans.filter((i) => i.id !== itemId)
+    saveProfileData(profileId, data)
+    return true
+  })
+
+  ipcMain.handle('financial-goals:list', (_e, profileId: string) => getProfileData(profileId).financialGoals)
+  ipcMain.handle(
+    'financial-goals:create',
+    (_e, profileId: string, input: Omit<FinancialGoal, 'id' | 'profileId' | 'createdAt'>) => {
+      const data = getProfileData(profileId)
+      const item: FinancialGoal = { ...input, id: randomUUID(), profileId, createdAt: new Date().toISOString() }
+      data.financialGoals.push(item)
+      saveProfileData(profileId, data)
+      return item
+    }
+  )
+  ipcMain.handle('financial-goals:delete', (_e, profileId: string, itemId: string) => {
+    const data = getProfileData(profileId)
+    data.financialGoals = data.financialGoals.filter((i) => i.id !== itemId)
+    saveProfileData(profileId, data)
+    return true
   })
 }

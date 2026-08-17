@@ -89,6 +89,62 @@ export interface AssetSnapshot {
   createdAt: string
 }
 
+/**
+ * 재무 정보(월급/적금/대출) — "목표(20억 모으기 등)를 지금 투자 능력으로 현실적으로 달성할 수
+ * 있는가"를 평가하려면 주식 포트폴리오만으로는 부족하다. 매달 얼마를 더 투자에 쓸 수 있는지
+ * (월급 - 적금 납입액 - 대출 상환액)와, 지금 순자산이 얼마인지(주식 평가금액 + 예적금 -
+ * 대출잔액)가 있어야 계산이 된다. domain/financialGoal.ts가 이 셋을 조합해서 계산한다.
+ */
+export interface IncomeSource {
+  id: string
+  profileId: string
+  /** 예: "본급여", "부업" */
+  name: string
+  monthlyAmount: number
+  currency: 'KRW' | 'USD'
+  note?: string
+  createdAt: string
+}
+
+export interface SavingsAccount {
+  id: string
+  profileId: string
+  /** 예: "청약저축", "정기적금" */
+  name: string
+  currentBalance: number
+  /** 매달 추가로 넣는 금액(0이면 예치만 하고 추가 납입 없음) */
+  monthlyContribution: number
+  interestRatePercent: number
+  currency: 'KRW' | 'USD'
+  createdAt: string
+}
+
+export interface Loan {
+  id: string
+  profileId: string
+  /** 예: "전세자금대출", "학자금대출" */
+  name: string
+  remainingBalance: number
+  monthlyPayment: number
+  interestRatePercent: number
+  currency: 'KRW' | 'USD'
+  createdAt: string
+}
+
+export interface FinancialGoal {
+  id: string
+  profileId: string
+  /** 예: "45세 전 20억 모으기" */
+  name: string
+  targetAmount: number
+  currency: 'KRW' | 'USD'
+  /** 목표 달성 희망일(ISO date) — "나이"가 아니라 날짜로 저장해서, 앱이 이 사람의 생년월일을
+   * 별도로 몰라도 "오늘부터 남은 개월수"를 항상 정확히 재계산할 수 있게 한다. */
+  targetDate: string
+  assumedAnnualReturnRatePercent: number
+  createdAt: string
+}
+
 export interface ProfileData {
   holdings: Holding[]
   manualPurchases: ManualPurchase[]
@@ -96,4 +152,8 @@ export interface ProfileData {
   dividendRecords: DividendRecord[]
   watchlist: WatchlistItem[]
   assetSnapshots: AssetSnapshot[]
+  incomeSources: IncomeSource[]
+  savingsAccounts: SavingsAccount[]
+  loans: Loan[]
+  financialGoals: FinancialGoal[]
 }

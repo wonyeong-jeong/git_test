@@ -8,7 +8,7 @@ import { useAutoRefreshQuotes } from '../../hooks/useAutoRefreshQuotes'
 import { useFxRates } from '../../hooks/useFxRates'
 import { formatMoney } from '../../utils/format'
 
-export type HomeNavTarget = 'plans' | 'portfolio' | 'dividends' | 'watchlist' | 'calendar' | 'assetGrowth'
+export type HomeNavTarget = 'plans' | 'portfolio' | 'dividends' | 'watchlist' | 'calendar' | 'assetGrowth' | 'goals'
 
 interface Props {
   profileId: string
@@ -21,6 +21,7 @@ const QUICK_NAV: { tab: HomeNavTarget; icon: string; label: string }[] = [
   { tab: 'plans', icon: '🔁', label: '적립식 계획' },
   { tab: 'portfolio', icon: '📊', label: '포트폴리오 합산' },
   { tab: 'dividends', icon: '💰', label: '배당' },
+  { tab: 'goals', icon: '🎯', label: '재무 정보 & 목표' },
   { tab: 'watchlist', icon: '⭐', label: '관심종목' },
   { tab: 'calendar', icon: '🗓️', label: '캘린더' },
   { tab: 'assetGrowth', icon: '💹', label: '자산 증식' }

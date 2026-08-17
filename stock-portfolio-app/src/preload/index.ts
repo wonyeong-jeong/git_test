@@ -3,9 +3,13 @@ import type {
   AssetSnapshot,
   ContributionPlan,
   DividendRecord,
+  FinancialGoal,
   Holding,
+  IncomeSource,
+  Loan,
   ManualPurchase,
   Profile,
+  SavingsAccount,
   WatchlistItem
 } from '../main/types'
 import type { Quote } from '../main/broker/tossClient'
@@ -87,6 +91,39 @@ const api = {
       ipcRenderer.invoke('market-data:getStockNews', ticker, currency, pageSize),
     getEtfSummary: (ticker: string, currency: 'KRW' | 'USD'): Promise<EtfSummary> =>
       ipcRenderer.invoke('market-data:getEtfSummary', ticker, currency)
+  },
+  incomeSources: {
+    list: (profileId: string): Promise<IncomeSource[]> => ipcRenderer.invoke('income-sources:list', profileId),
+    create: (
+      profileId: string,
+      input: Omit<IncomeSource, 'id' | 'profileId' | 'createdAt'>
+    ): Promise<IncomeSource> => ipcRenderer.invoke('income-sources:create', profileId, input),
+    delete: (profileId: string, itemId: string): Promise<boolean> =>
+      ipcRenderer.invoke('income-sources:delete', profileId, itemId)
+  },
+  savingsAccounts: {
+    list: (profileId: string): Promise<SavingsAccount[]> => ipcRenderer.invoke('savings-accounts:list', profileId),
+    create: (
+      profileId: string,
+      input: Omit<SavingsAccount, 'id' | 'profileId' | 'createdAt'>
+    ): Promise<SavingsAccount> => ipcRenderer.invoke('savings-accounts:create', profileId, input),
+    delete: (profileId: string, itemId: string): Promise<boolean> =>
+      ipcRenderer.invoke('savings-accounts:delete', profileId, itemId)
+  },
+  loans: {
+    list: (profileId: string): Promise<Loan[]> => ipcRenderer.invoke('loans:list', profileId),
+    create: (profileId: string, input: Omit<Loan, 'id' | 'profileId' | 'createdAt'>): Promise<Loan> =>
+      ipcRenderer.invoke('loans:create', profileId, input),
+    delete: (profileId: string, itemId: string): Promise<boolean> => ipcRenderer.invoke('loans:delete', profileId, itemId)
+  },
+  financialGoals: {
+    list: (profileId: string): Promise<FinancialGoal[]> => ipcRenderer.invoke('financial-goals:list', profileId),
+    create: (
+      profileId: string,
+      input: Omit<FinancialGoal, 'id' | 'profileId' | 'createdAt'>
+    ): Promise<FinancialGoal> => ipcRenderer.invoke('financial-goals:create', profileId, input),
+    delete: (profileId: string, itemId: string): Promise<boolean> =>
+      ipcRenderer.invoke('financial-goals:delete', profileId, itemId)
   }
 }
 

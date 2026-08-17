@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { Holding, Profile, WatchlistItem } from './types'
 import HomePage, { type HomeNavTarget } from './features/home/HomePage'
+import GoalsPage from './features/goals/GoalsPage'
 import HoldingsPage from './features/holdings/HoldingsPage'
 import ContributionPlanPage from './features/contribution-plan/ContributionPlanPage'
 import PortfolioSimulationPage from './features/portfolio-simulation/PortfolioSimulationPage'
@@ -24,6 +25,7 @@ export type Tab =
   | 'transactions'
   | 'calendar'
   | 'assetGrowth'
+  | 'goals'
   | 'broker'
 
 export default function App(): JSX.Element {
@@ -108,6 +110,9 @@ export default function App(): JSX.Element {
             <button className={tab === 'assetGrowth' ? 'active' : ''} onClick={() => selectTab('assetGrowth')}>
               <span className="nav-icon">💹</span>자산 증식
             </button>
+            <button className={tab === 'goals' ? 'active' : ''} onClick={() => selectTab('goals')}>
+              <span className="nav-icon">🎯</span>재무 정보 &amp; 목표
+            </button>
             <button className={tab === 'broker' ? 'active' : ''} onClick={() => selectTab('broker')}>
               <span className="nav-icon">🔌</span>API 연결
             </button>
@@ -147,6 +152,7 @@ export default function App(): JSX.Element {
               {tab === 'transactions' && <TransactionsPage profileId={profile.id} holdings={holdings} />}
               {tab === 'calendar' && <CalendarPage profileId={profile.id} holdings={holdings} />}
               {tab === 'assetGrowth' && <AssetGrowthPage profileId={profile.id} holdings={holdings} />}
+              {tab === 'goals' && <GoalsPage profileId={profile.id} holdings={holdings} />}
               {tab === 'broker' && <BrokerSettingsPage />}
             </>
           )}

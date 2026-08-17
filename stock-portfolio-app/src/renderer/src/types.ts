@@ -154,3 +154,47 @@ export interface EtfSummary {
   returnRate1yPercent: number | null
   navDeviationPercent: number | null
 }
+
+export interface IncomeSource {
+  id: string
+  profileId: string
+  name: string
+  monthlyAmount: number
+  currency: 'KRW' | 'USD'
+  note?: string
+  createdAt: string
+}
+
+export interface SavingsAccount {
+  id: string
+  profileId: string
+  name: string
+  currentBalance: number
+  monthlyContribution: number
+  interestRatePercent: number
+  currency: 'KRW' | 'USD'
+  createdAt: string
+}
+
+export interface Loan {
+  id: string
+  profileId: string
+  name: string
+  remainingBalance: number
+  monthlyPayment: number
+  interestRatePercent: number
+  currency: 'KRW' | 'USD'
+  createdAt: string
+}
+
+export interface FinancialGoal {
+  id: string
+  profileId: string
+  name: string
+  targetAmount: number
+  currency: 'KRW' | 'USD'
+  /** 목표 달성 희망일(ISO date) */
+  targetDate: string
+  assumedAnnualReturnRatePercent: number
+  createdAt: string
+}
