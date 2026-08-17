@@ -9,10 +9,12 @@ import {
   XAxis,
   YAxis
 } from 'recharts'
-import type { ContributionFrequency, ContributionPlan, ContributionValueType, Holding } from '../../types'
+import type { ContributionFrequency, ContributionPlan, ContributionValueType, Holding, ManualPurchase } from '../../types'
 import { monthlyEquivalentMultiplier, projectPlanContributionGrowth, summarizeExpectedReturn } from '../../domain/compound'
 import { generateScheduleEvents } from '../../domain/contributionSchedule'
+import { deriveCurrentPosition } from '../../domain/position'
 import { DEFAULT_TAX_ASSUMPTIONS, calculateCapitalGainsTax, type Market } from '../../domain/tax'
+import { useFxRates } from '../../hooks/useFxRates'
 import { formatAxisTick, formatMoney, formatQuantity } from '../../utils/format'
 
 interface Props {
@@ -36,6 +38,7 @@ const emptyForm = {
 
 export default function ContributionPlanPage({ profileId, holdings }: Props): JSX.Element {
   const [plans, setPlans] = useState<ContributionPlan[]>([])
+  const [purchases, setPurchases] = useState<ManualPurchase[]>([])
   const [form, setForm] = useState(emptyForm)
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null)
 
@@ -51,6 +54,10 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
     DEFAULT_TAX_ASSUMPTIONS.overseasCapitalGainsBasicDeductionKRW
   )
 
+  // USD 종목을 원화로 환산해서 볼지 여부
+  const [showKrw, setShowKrw] = useState(false)
+  const { usdKrw, lastUpdated: fxLastUpdated } = useFxRates()
+
   async function refresh(): Promise<void> {
     const list = await window.api.contributionPlans.list(profileId)
     setPlans(list)
@@ -58,6 +65,8 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
 
   useEffect(() => {
     refresh()
+    window.api.manualPurchases.list(profileId).then(setPurchases)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId])
 
   async function handleSubmit(e: FormEvent): Promise<void> {
@@ -92,22 +101,34 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
   const selectedPlan = plans.find((p) => p.id === selectedPlanId) ?? null
   const selectedHolding = selectedPlan ? holdings.find((h) => h.id === selectedPlan.holdingId) : null
 
+  // Holding.quantity/avgPrice는 종목 등록 시점 값 그대로 고정이라, 그 뒤 '매매 이력'에 기록한
+  // 추가 매수/매도는 반영되지 않는다 — 그래서 지금까지의 실제 매매 기록을 다시 적용해서
+  // "진짜 지금" 수량/평단가/투입원금을 계산한다. 이게 시뮬레이션의 시작점이 된다.
+  const position = useMemo(() => {
+    if (!selectedHolding) return null
+    const holdingPurchases = purchases.filter((p) => p.holdingId === selectedHolding.id)
+    return deriveCurrentPosition(selectedHolding, holdingPurchases)
+  }, [selectedHolding, purchases])
+
+  const convert = selectedHolding?.currency === 'USD' && showKrw && usdKrw != null
+  const fx = convert ? usdKrw : 1
+  const displayCurrency = convert ? 'KRW' : (selectedHolding?.currency ?? 'KRW')
+
   const projection = useMemo(() => {
-    if (!selectedPlan || !selectedHolding) return null
-    const initialPrincipal = selectedHolding.quantity * selectedHolding.avgPrice
+    if (!selectedPlan || !selectedHolding || !position) return null
     const value = amountOverride ?? selectedPlan.amount
     const annualReturnRatePercent = returnOverride ?? selectedPlan.assumedAnnualReturnRate
     const points = projectPlanContributionGrowth({
       contributionType: selectedPlan.contributionType,
       frequency: selectedPlan.frequency,
       value,
-      referencePrice: selectedHolding.avgPrice,
-      initialPrincipal,
+      referencePrice: position.avgPrice,
+      initialPrincipal: position.totalCost,
       annualReturnRatePercent,
       months: monthsHorizon
     })
     return { points, summary: summarizeExpectedReturn(points) }
-  }, [selectedPlan, selectedHolding, monthsHorizon, amountOverride, returnOverride])
+  }, [selectedPlan, selectedHolding, position, monthsHorizon, amountOverride, returnOverride])
 
   const market: Market = selectedHolding?.currency === 'USD' ? 'OVERSEAS' : 'DOMESTIC'
 
@@ -270,9 +291,39 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
           {plans.length === 0 && <p className="empty-hint">등록된 적립식 계획이 없습니다.</p>}
         </section>
 
-        {selectedPlan && projection && (
+        {selectedPlan && projection && position && (
           <section className="card simulation-panel">
             <h2>{selectedPlan.name} — 기간/금액 조정 시뮬레이션</h2>
+
+            <p className="muted small" style={{ marginTop: -4 }}>
+              총 납입원금은 등록 시점 값에 '매매 이력'에 기록된 실제 매수/매도까지 반영해서 계산됩니다
+              {position.quantity !== selectedHolding?.quantity && (
+                <> (현재 {formatQuantity(position.quantity)}주, 평단가 {formatMoney(position.avgPrice, selectedHolding?.currency ?? 'KRW')})</>
+              )}
+              .
+            </p>
+
+            {selectedHolding?.currency === 'USD' && (
+              <div className="auto-refresh-controls" style={{ marginBottom: 16 }}>
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={showKrw}
+                    disabled={usdKrw == null}
+                    onChange={(e) => setShowKrw(e.target.checked)}
+                  />
+                  원화로 환산해서 보기
+                </label>
+                {usdKrw != null ? (
+                  <span>
+                    적용 환율 1 USD = {usdKrw.toLocaleString()}원
+                    {fxLastUpdated && ` (${fxLastUpdated.toLocaleTimeString()} 기준)`}
+                  </span>
+                ) : (
+                  <span className="muted">환율 불러오는 중…</span>
+                )}
+              </div>
+            )}
 
             <div className="sim-controls">
               <label>
@@ -289,7 +340,7 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                 {selectedPlan.contributionType === 'QUANTITY' ? '회당 매수 수량' : '회당 적립액'}:{' '}
                 {selectedPlan.contributionType === 'QUANTITY'
                   ? `${formatQuantity(amountOverride ?? selectedPlan.amount)}주`
-                  : formatMoney(amountOverride ?? selectedPlan.amount, selectedHolding?.currency ?? 'KRW')}
+                  : formatMoney((amountOverride ?? selectedPlan.amount) * fx, displayCurrency)}
                 <input
                   type="range"
                   min={0}
@@ -308,8 +359,8 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                     {selectedPlan.contributionType === 'QUANTITY'
                       ? `${formatQuantity((amountOverride ?? selectedPlan.amount) * monthlyEquivalentMultiplier('WEEKLY'))}주`
                       : formatMoney(
-                          (amountOverride ?? selectedPlan.amount) * monthlyEquivalentMultiplier('WEEKLY'),
-                          selectedHolding?.currency ?? 'KRW'
+                          (amountOverride ?? selectedPlan.amount) * monthlyEquivalentMultiplier('WEEKLY') * fx,
+                          displayCurrency
                         )}
                     {' '}(1개월 ≈ 4.35주로 계산)
                   </span>
@@ -331,21 +382,15 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
             <div className="summary-cards">
               <div className="summary-card">
                 <span className="label">총 납입원금</span>
-                <span className="value">
-                  {formatMoney(projection.summary.totalContributed, selectedHolding?.currency ?? 'KRW')}
-                </span>
+                <span className="value">{formatMoney(projection.summary.totalContributed * fx, displayCurrency)}</span>
               </div>
               <div className="summary-card">
                 <span className="label">예상 평가금액</span>
-                <span className="value">
-                  {formatMoney(projection.summary.finalValue, selectedHolding?.currency ?? 'KRW')}
-                </span>
+                <span className="value">{formatMoney(projection.summary.finalValue * fx, displayCurrency)}</span>
               </div>
               <div className="summary-card highlight">
                 <span className="label">예상 수익금</span>
-                <span className="value">
-                  {formatMoney(projection.summary.expectedProfit, selectedHolding?.currency ?? 'KRW')}
-                </span>
+                <span className="value">{formatMoney(projection.summary.expectedProfit * fx, displayCurrency)}</span>
               </div>
               <div className="summary-card">
                 <span className="label">예상 수익률</span>
@@ -400,21 +445,15 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                 <div className="summary-cards">
                   <div className="summary-card">
                     <span className="label">예상 양도소득세</span>
-                    <span className="value">
-                      {formatMoney(capitalGains.taxAmount, selectedHolding?.currency ?? 'KRW')}
-                    </span>
+                    <span className="value">{formatMoney(capitalGains.taxAmount * fx, displayCurrency)}</span>
                   </div>
                   <div className="summary-card highlight">
                     <span className="label">세후 순수익</span>
-                    <span className="value">
-                      {formatMoney(capitalGains.netProfit, selectedHolding?.currency ?? 'KRW')}
-                    </span>
+                    <span className="value">{formatMoney(capitalGains.netProfit * fx, displayCurrency)}</span>
                   </div>
                   <div className="summary-card">
                     <span className="label">세후 실수령 평가금액</span>
-                    <span className="value">
-                      {formatMoney(capitalGains.netValue, selectedHolding?.currency ?? 'KRW')}
-                    </span>
+                    <span className="value">{formatMoney(capitalGains.netValue * fx, displayCurrency)}</span>
                   </div>
                   <div className="summary-card">
                     <span className="label">실효세율</span>
@@ -429,9 +468,9 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                 <LineChart data={projection.points}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="month" label={{ value: '개월', position: 'insideBottomRight', offset: -5 }} />
-                  <YAxis tickFormatter={(v) => formatAxisTick(v, selectedHolding?.currency ?? 'KRW')} />
+                  <YAxis tickFormatter={(v) => formatAxisTick(v * fx, displayCurrency)} />
                   <Tooltip
-                    formatter={(v: number) => formatMoney(v, selectedHolding?.currency ?? 'KRW')}
+                    formatter={(v: number) => formatMoney(v * fx, displayCurrency)}
                     labelFormatter={(m) => `${m}개월차`}
                   />
                   <Legend />
@@ -449,7 +488,7 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                     {ev.date} —{' '}
                     {selectedPlan.contributionType === 'QUANTITY'
                       ? `${formatQuantity(ev.plannedAmount)}주`
-                      : formatMoney(ev.plannedAmount, selectedHolding?.currency ?? 'KRW')}{' '}
+                      : formatMoney(ev.plannedAmount * fx, displayCurrency)}{' '}
                     예정
                   </li>
                 ))}

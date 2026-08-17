@@ -9,14 +9,16 @@ import {
   XAxis,
   YAxis
 } from 'recharts'
-import type { ContributionPlan, Holding } from '../../types'
+import type { ContributionPlan, Holding, ManualPurchase } from '../../types'
 import {
   aggregateProjections,
   projectPlanContributionGrowth,
   summarizeExpectedReturn,
   type CompoundProjectionPoint
 } from '../../domain/compound'
+import { deriveCurrentPosition } from '../../domain/position'
 import { calculateCapitalGainsTax, type Market } from '../../domain/tax'
+import { useFxRates } from '../../hooks/useFxRates'
 import { formatAxisTick, formatMoney, formatQuantity } from '../../utils/format'
 
 interface Props {
@@ -46,12 +48,17 @@ interface AfterTaxTotals {
 
 export default function PortfolioSimulationPage({ profileId, holdings }: Props): JSX.Element {
   const [plans, setPlans] = useState<ContributionPlan[]>([])
+  const [purchases, setPurchases] = useState<ManualPurchase[]>([])
   const [monthsHorizon, setMonthsHorizon] = useState(24)
   const [amountMultiplierPercent, setAmountMultiplierPercent] = useState(100)
   const [showAfterTax, setShowAfterTax] = useState(false)
+  // 원화/달러가 섞여 있을 때, 환율로 환산해서 하나로 합친 값도 같이 보고 싶을 때 켠다
+  const [combineWithFx, setCombineWithFx] = useState(false)
+  const { usdKrw, lastUpdated: fxLastUpdated } = useFxRates()
 
   useEffect(() => {
     window.api.contributionPlans.list(profileId).then(setPlans)
+    window.api.manualPurchases.list(profileId).then(setPurchases)
   }, [profileId])
 
   const rows: PlanRow[] = useMemo(() => {
@@ -61,19 +68,25 @@ export default function PortfolioSimulationPage({ profileId, holdings }: Props):
         if (!holding) return null
         const market: Market = holding.currency === 'USD' ? 'OVERSEAS' : 'DOMESTIC'
         const scaledValue = plan.amount * (amountMultiplierPercent / 100)
+        // Holding.quantity/avgPrice는 등록 시점 값 그대로라, 그 뒤 '매매 이력'에 기록한 실제
+        // 매수/매도까지 반영한 진짜 현재 포지션을 다시 계산해서 시뮬레이션 시작점으로 쓴다.
+        const position = deriveCurrentPosition(
+          holding,
+          purchases.filter((p) => p.holdingId === holding.id)
+        )
         const points = projectPlanContributionGrowth({
           contributionType: plan.contributionType,
           frequency: plan.frequency,
           value: scaledValue,
-          referencePrice: holding.avgPrice,
-          initialPrincipal: holding.quantity * holding.avgPrice,
+          referencePrice: position.avgPrice,
+          initialPrincipal: position.totalCost,
           annualReturnRatePercent: plan.assumedAnnualReturnRate,
           months: monthsHorizon
         })
         return { plan, holding, market, scaledValue, points }
       })
       .filter((r): r is PlanRow => r !== null)
-  }, [plans, holdings, monthsHorizon, amountMultiplierPercent])
+  }, [plans, holdings, purchases, monthsHorizon, amountMultiplierPercent])
 
   const rowsWithTax = useMemo(
     () =>
@@ -121,6 +134,36 @@ export default function PortfolioSimulationPage({ profileId, holdings }: Props):
     return result
   }, [rowsWithTax, currencies])
 
+  // "환율로 합쳐서 보기"가 켜져 있으면 USD 종목을 실시간 환율로 원화 환산한 뒤 전부 하나로
+  // 합산한다. 통화별 카드는 그대로 유지하고, 이건 추가로 보여주는 추정치다.
+  const canCombine = combineWithFx && usdKrw != null && currencies.length > 1
+
+  const combinedKrw = useMemo(() => {
+    if (!canCombine) return null
+    const convertedPointsList = rows.map((r) => {
+      const fx = r.holding.currency === 'USD' ? (usdKrw as number) : 1
+      return r.points.map((p) => ({ month: p.month, contributed: p.contributed * fx, value: p.value * fx }))
+    })
+    const aggregated = aggregateProjections(convertedPointsList)
+    if (aggregated.length === 0) return null
+    return { aggregated, summary: summarizeExpectedReturn(aggregated) }
+  }, [canCombine, rows, usdKrw])
+
+  const combinedAfterTaxKrw = useMemo(() => {
+    if (!canCombine) return null
+    return rowsWithTax.reduce(
+      (acc, r) => {
+        const fx = r.holding.currency === 'USD' ? (usdKrw as number) : 1
+        return {
+          totalContributed: acc.totalContributed + r.last.contributed * fx,
+          netValue: acc.netValue + r.tax.netValue * fx,
+          taxAmount: acc.taxAmount + r.tax.taxAmount * fx
+        }
+      },
+      { totalContributed: 0, netValue: 0, taxAmount: 0 }
+    )
+  }, [canCombine, rowsWithTax, usdKrw])
+
   return (
     <div>
       <div className="page-header">
@@ -166,11 +209,93 @@ export default function PortfolioSimulationPage({ profileId, holdings }: Props):
             </label>
 
             {currencies.length > 1 && (
-              <p className="muted small" style={{ marginTop: -8 }}>
-                보유 통화가 여러 개라(KRW/USD) 환율 없이 더하지 않고 통화별로 따로 합산해서 보여드립니다.
-              </p>
+              <>
+                <p className="muted small" style={{ marginTop: -8, marginBottom: 12 }}>
+                  보유 통화가 여러 개라(KRW/USD) 기본적으로는 환율 없이 더하지 않고 통화별로 따로 합산해서 보여드려요.
+                </p>
+                <div className="auto-refresh-controls" style={{ marginBottom: 0 }}>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={combineWithFx}
+                      disabled={usdKrw == null}
+                      onChange={(e) => setCombineWithFx(e.target.checked)}
+                    />
+                    환율로 환산해서 전체 하나로 합쳐 보기
+                  </label>
+                  {usdKrw != null ? (
+                    <span>
+                      적용 환율 1 USD = {usdKrw.toLocaleString()}원
+                      {fxLastUpdated && ` (${fxLastUpdated.toLocaleTimeString()} 기준)`}
+                    </span>
+                  ) : (
+                    <span className="muted">환율 불러오는 중…</span>
+                  )}
+                </div>
+              </>
             )}
           </div>
+
+          {canCombine && combinedKrw && (
+            <div className="card">
+              <h2 style={{ marginTop: 0, fontSize: 15 }}>전체 합산 (원화 환산, 추정)</h2>
+              <p className="muted small" style={{ marginTop: 0 }}>
+                USD 종목을 현재 환율로 환산해서 KRW 종목과 합친 값입니다 — 실제 환전 시점 환율에 따라 달라질 수 있는
+                추정치입니다.
+              </p>
+              <div className="summary-cards">
+                <div className="summary-card">
+                  <span className="label">총 납입원금 (전체 합산)</span>
+                  <span className="value">{formatMoney(combinedKrw.summary.totalContributed, 'KRW')}</span>
+                </div>
+                <div className="summary-card">
+                  <span className="label">예상 평가금액</span>
+                  <span className="value">{formatMoney(combinedKrw.summary.finalValue, 'KRW')}</span>
+                </div>
+                <div className="summary-card highlight">
+                  <span className="label">예상 수익금</span>
+                  <span className="value">{formatMoney(combinedKrw.summary.expectedProfit, 'KRW')}</span>
+                </div>
+                <div className="summary-card">
+                  <span className="label">예상 수익률</span>
+                  <span className="value">{combinedKrw.summary.expectedReturnRatePercent.toFixed(1)}%</span>
+                </div>
+              </div>
+
+              {showAfterTax && combinedAfterTaxKrw && (
+                <div className="summary-cards">
+                  <div className="summary-card">
+                    <span className="label">예상 세금 합계</span>
+                    <span className="value">{formatMoney(combinedAfterTaxKrw.taxAmount, 'KRW')}</span>
+                  </div>
+                  <div className="summary-card highlight">
+                    <span className="label">세후 실수령 평가금액</span>
+                    <span className="value">{formatMoney(combinedAfterTaxKrw.netValue, 'KRW')}</span>
+                  </div>
+                  <div className="summary-card">
+                    <span className="label">세후 순수익</span>
+                    <span className="value">
+                      {formatMoney(combinedAfterTaxKrw.netValue - combinedAfterTaxKrw.totalContributed, 'KRW')}
+                    </span>
+                  </div>
+                </div>
+              )}
+
+              <div style={{ width: '100%', height: 300 }}>
+                <ResponsiveContainer>
+                  <LineChart data={combinedKrw.aggregated}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="month" label={{ value: '개월', position: 'insideBottomRight', offset: -5 }} />
+                    <YAxis tickFormatter={(v) => formatAxisTick(v, 'KRW')} />
+                    <Tooltip formatter={(v: number) => formatMoney(v, 'KRW')} labelFormatter={(m) => `${m}개월차`} />
+                    <Legend />
+                    <Line type="monotone" dataKey="contributed" name="납입원금 합산" stroke="#ADB5BD" dot={false} />
+                    <Line type="monotone" dataKey="value" name="평가금액 합산" stroke="#3182F6" dot={false} strokeWidth={2} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          )}
 
           {currencies.map((currency) => {
             const cs = summaryByCurrency[currency]

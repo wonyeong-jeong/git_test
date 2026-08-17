@@ -8,6 +8,7 @@ import { useAutoRefreshQuotes } from '../../hooks/useAutoRefreshQuotes'
 import { useFlashOnChange } from '../../hooks/useFlashOnChange'
 import { useFxRates } from '../../hooks/useFxRates'
 import { buildCumulativeTimeline, type CumulativeDelta } from '../../domain/assetGrowth'
+import { deriveCurrentPosition } from '../../domain/position'
 import { groupDividendsByPeriod, sumDividendRecords, type DividendGranularity } from '../../domain/dividend'
 import { calculateDividendTax } from '../../domain/tax'
 import { formatAxisTick, formatMoney } from '../../utils/format'
@@ -62,8 +63,11 @@ export default function StockDetailPage({ profileId, holding, onBack }: Props): 
   const flash = useFlashOnChange(quote?.lastPrice)
   const priceKnown = quote && quote.currency === holding.currency
 
-  const purchaseAmount = holding.quantity * holding.avgPrice
-  const currentValue = priceKnown ? holding.quantity * quote.lastPrice : null
+  // Holding.quantity/avgPrice는 등록 시점 값 그대로라, 그 뒤 '매매 이력'에 기록한 실제
+  // 매수/매도까지 반영한 진짜 현재 수량/평단가를 다시 계산해서 화면에 보여준다.
+  const position = useMemo(() => deriveCurrentPosition(holding, purchases), [holding, purchases])
+  const purchaseAmount = position.totalCost
+  const currentValue = priceKnown ? position.quantity * quote.lastPrice : null
   const pl = currentValue != null ? currentValue - purchaseAmount : null
 
   // 실제 주가 차트는 없다(과거 시세 API 미연동) — 대신 매수/매도 기록으로부터 계산되는
@@ -153,11 +157,11 @@ export default function StockDetailPage({ profileId, holding, onBack }: Props): 
           </div>
           <div className="summary-card">
             <span className="label">보유수량</span>
-            <span className="value">{holding.quantity.toLocaleString()}주</span>
+            <span className="value">{position.quantity.toLocaleString()}주</span>
           </div>
           <div className="summary-card">
             <span className="label">평단가</span>
-            <span className="value">{formatMoney(holding.avgPrice * fx, displayCurrency)}</span>
+            <span className="value">{formatMoney(position.avgPrice * fx, displayCurrency)}</span>
           </div>
           <div className="summary-card">
             <span className="label">매입금액</span>
@@ -177,7 +181,8 @@ export default function StockDetailPage({ profileId, holding, onBack }: Props): 
           </div>
         </div>
         <p className="muted small" style={{ marginBottom: 0 }}>
-          등록일 {holding.createdAt.slice(0, 10)}
+          등록일 {holding.createdAt.slice(0, 10)} — 위 수량·평단가·매입금액은 등록 시점 값에 '매매 이력'의 실제
+          매수/매도를 반영한 현재 값입니다.
         </p>
       </div>
 

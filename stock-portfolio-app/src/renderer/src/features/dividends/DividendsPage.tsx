@@ -10,7 +10,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts'
-import type { ContributionPlan, DividendRecord, Holding } from '../../types'
+import type { ContributionPlan, DividendRecord, Holding, ManualPurchase } from '../../types'
 import { projectPlanContributionGrowth } from '../../domain/compound'
 import {
   aggregateDividendProjections,
@@ -19,7 +19,9 @@ import {
   sumDividendRecords,
   type DividendGranularity
 } from '../../domain/dividend'
+import { deriveCurrentPosition } from '../../domain/position'
 import { calculateDividendTax } from '../../domain/tax'
+import { useFxRates } from '../../hooks/useFxRates'
 import { formatAxisTick, formatMoney } from '../../utils/format'
 
 const GRANULARITY_LABELS: Record<DividendGranularity, string> = { WEEK: '주간', MONTH: '월간', YEAR: '연간' }
@@ -52,11 +54,15 @@ interface DividendTotals {
 export default function DividendsPage({ profileId, holdings }: Props): JSX.Element {
   const [records, setRecords] = useState<DividendRecord[]>([])
   const [plans, setPlans] = useState<ContributionPlan[]>([])
+  const [purchases, setPurchases] = useState<ManualPurchase[]>([])
   const [form, setForm] = useState(emptyForm)
 
   const [monthsHorizon, setMonthsHorizon] = useState(24)
   const [amountMultiplierPercent, setAmountMultiplierPercent] = useState(100)
   const [granularity, setGranularity] = useState<DividendGranularity>('MONTH')
+  // 원화/달러가 섞여 있을 때, 환율로 환산해서 하나로 합친 값도 같이 보고 싶을 때 켠다
+  const [combineWithFx, setCombineWithFx] = useState(false)
+  const { usdKrw, lastUpdated: fxLastUpdated } = useFxRates()
 
   async function refreshRecords(): Promise<void> {
     setRecords(await window.api.dividends.list(profileId))
@@ -65,6 +71,7 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
   useEffect(() => {
     refreshRecords()
     window.api.contributionPlans.list(profileId).then(setPlans)
+    window.api.manualPurchases.list(profileId).then(setPurchases)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId])
 
@@ -146,12 +153,18 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
         .map((plan) => {
           const holding = holdings.find((h) => h.id === plan.holdingId)
           if (!holding) return null
+          // Holding.quantity/avgPrice는 등록 시점 값 그대로라, 그 뒤 '매매 이력'에 기록한 실제
+          // 매수/매도까지 반영한 진짜 현재 포지션을 다시 계산해서 시뮬레이션 시작점으로 쓴다.
+          const position = deriveCurrentPosition(
+            holding,
+            purchases.filter((p) => p.holdingId === holding.id)
+          )
           const growth = projectPlanContributionGrowth({
             contributionType: plan.contributionType,
             frequency: plan.frequency,
             value: plan.amount * (amountMultiplierPercent / 100),
-            referencePrice: holding.avgPrice,
-            initialPrincipal: holding.quantity * holding.avgPrice,
+            referencePrice: position.avgPrice,
+            initialPrincipal: position.totalCost,
             annualReturnRatePercent: plan.assumedAnnualReturnRate,
             months: monthsHorizon
           })
@@ -162,7 +175,38 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
     }
     return result
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dividendPlans, holdings, monthsHorizon, amountMultiplierPercent, currenciesWithDividendPlans])
+  }, [dividendPlans, holdings, purchases, monthsHorizon, amountMultiplierPercent, currenciesWithDividendPlans])
+
+  const canCombine = combineWithFx && usdKrw != null
+
+  const combinedTotalsKrw = useMemo(() => {
+    if (!canCombine || currenciesWithDividends.length < 2) return null
+    return currenciesWithDividends.reduce(
+      (acc, currency) => {
+        const t = totalsByCurrency[currency]
+        const fx = currency === 'USD' ? (usdKrw as number) : 1
+        return {
+          allTimeGross: acc.allTimeGross + t.allTimeGross * fx,
+          allTimeNet: acc.allTimeNet + t.allTimeNet * fx,
+          ytdGross: acc.ytdGross + t.ytdGross * fx,
+          ytdNet: acc.ytdNet + t.ytdNet * fx
+        }
+      },
+      { allTimeGross: 0, allTimeNet: 0, ytdGross: 0, ytdNet: 0 }
+    )
+  }, [canCombine, currenciesWithDividends, totalsByCurrency, usdKrw])
+
+  const combinedDividendProjectionKrw = useMemo(() => {
+    if (!canCombine || currenciesWithDividendPlans.length < 2) return null
+    const converted = currenciesWithDividendPlans.map((currency) => {
+      const fx = currency === 'USD' ? (usdKrw as number) : 1
+      return dividendProjectionByCurrency[currency].map((p) => ({
+        month: p.month,
+        expectedAnnualDividend: p.expectedAnnualDividend * fx
+      }))
+    })
+    return aggregateDividendProjections(converted)
+  }, [canCombine, currenciesWithDividendPlans, dividendProjectionByCurrency, usdKrw])
 
   return (
     <div>
@@ -171,9 +215,51 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
       </div>
 
       {currenciesWithDividends.length > 1 && (
-        <p className="muted small" style={{ marginTop: -8 }}>
-          보유 통화가 여러 개라(KRW/USD) 환율 없이 더하지 않고 통화별로 따로 집계해서 보여드립니다.
-        </p>
+        <>
+          <p className="muted small" style={{ marginTop: -8, marginBottom: 12 }}>
+            보유 통화가 여러 개라(KRW/USD) 기본적으로는 환율 없이 더하지 않고 통화별로 따로 집계해서 보여드려요.
+          </p>
+          <div className="auto-refresh-controls">
+            <label>
+              <input
+                type="checkbox"
+                checked={combineWithFx}
+                disabled={usdKrw == null}
+                onChange={(e) => setCombineWithFx(e.target.checked)}
+              />
+              환율로 환산해서 전체 하나로 합쳐 보기
+            </label>
+            {usdKrw != null ? (
+              <span>
+                적용 환율 1 USD = {usdKrw.toLocaleString()}원
+                {fxLastUpdated && ` (${fxLastUpdated.toLocaleTimeString()} 기준)`}
+              </span>
+            ) : (
+              <span className="muted">환율 불러오는 중…</span>
+            )}
+          </div>
+        </>
+      )}
+
+      {canCombine && combinedTotalsKrw && (
+        <div className="summary-cards" style={{ marginBottom: 12 }}>
+          <div className="summary-card">
+            <span className="label">전체 합산(원화 환산) 올해 배당금 (세전)</span>
+            <span className="value">{formatMoney(combinedTotalsKrw.ytdGross, 'KRW')}</span>
+          </div>
+          <div className="summary-card highlight">
+            <span className="label">전체 합산(원화 환산) 올해 배당금 (세후)</span>
+            <span className="value">{formatMoney(combinedTotalsKrw.ytdNet, 'KRW')}</span>
+          </div>
+          <div className="summary-card">
+            <span className="label">전체 합산(원화 환산) 누적 배당금 (세전)</span>
+            <span className="value">{formatMoney(combinedTotalsKrw.allTimeGross, 'KRW')}</span>
+          </div>
+          <div className="summary-card">
+            <span className="label">전체 합산(원화 환산) 누적 배당금 (세후)</span>
+            <span className="value">{formatMoney(combinedTotalsKrw.allTimeNet, 'KRW')}</span>
+          </div>
+        </div>
       )}
 
       {currenciesWithDividends.map((currency) => {
@@ -344,6 +430,44 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
                 />
               </label>
             </div>
+
+            {canCombine && combinedDividendProjectionKrw && (
+              <div style={{ marginBottom: 20 }}>
+                <h3 style={{ fontSize: 14 }}>전체 합산 (원화 환산, 추정)</h3>
+                <div className="summary-cards">
+                  <div className="summary-card highlight">
+                    <span className="label">
+                      {monthsHorizon}개월 후 예상 연간 배당금 (세전, 원화 환산)
+                    </span>
+                    <span className="value">
+                      {formatMoney(
+                        combinedDividendProjectionKrw[combinedDividendProjectionKrw.length - 1]
+                          ?.expectedAnnualDividend ?? 0,
+                        'KRW'
+                      )}
+                    </span>
+                  </div>
+                </div>
+                <div style={{ width: '100%', height: 240 }}>
+                  <ResponsiveContainer>
+                    <LineChart data={combinedDividendProjectionKrw}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="month" label={{ value: '개월', position: 'insideBottomRight', offset: -5 }} />
+                      <YAxis tickFormatter={(v) => formatAxisTick(v, 'KRW')} />
+                      <Tooltip formatter={(v: number) => formatMoney(v, 'KRW')} labelFormatter={(m) => `${m}개월차`} />
+                      <Line
+                        type="monotone"
+                        dataKey="expectedAnnualDividend"
+                        name="예상 연간 배당금 (원화 환산)"
+                        stroke="#3182F6"
+                        dot={false}
+                        strokeWidth={2}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </div>
+            )}
 
             {currenciesWithDividendPlans.map((currency) => {
               const projection = dividendProjectionByCurrency[currency]

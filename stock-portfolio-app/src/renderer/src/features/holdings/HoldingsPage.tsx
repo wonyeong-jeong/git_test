@@ -1,5 +1,5 @@
-import { FormEvent, useState } from 'react'
-import type { Broker, Holding, Quote } from '../../types'
+import { FormEvent, useEffect, useState } from 'react'
+import type { Broker, Holding, ManualPurchase, Quote } from '../../types'
 import { BROKER_LABELS } from '../../types'
 import StockSearchInput, { type StockOption } from '../../components/StockSearchInput'
 import StockAvatar from '../../components/StockAvatar'
@@ -8,6 +8,7 @@ import AutoRefreshControls from '../../components/AutoRefreshControls'
 import { useAutoRefreshQuotes } from '../../hooks/useAutoRefreshQuotes'
 import { useFlashOnChange } from '../../hooks/useFlashOnChange'
 import { useFxRates } from '../../hooks/useFxRates'
+import { deriveCurrentPosition } from '../../domain/position'
 import { formatMoney } from '../../utils/format'
 
 interface Props {
@@ -30,6 +31,7 @@ const emptyForm = {
 
 interface RowProps {
   holding: Holding
+  purchases: ManualPurchase[]
   quote?: Quote
   onDelete: (id: string) => void
   onOpenDetail: (holdingId: string) => void
@@ -40,10 +42,17 @@ interface RowProps {
 
 /** 행을 별도 컴포넌트로 분리한 이유: useFlashOnChange는 각 행마다 독립적으로 상태를 가져야
  * 하는데, 부모의 .map() 콜백 안에서 직접 훅을 호출하면 Rules of Hooks를 어기게 된다. */
-function HoldingRow({ holding, quote, onDelete, onOpenDetail, showKrw, usdKrw }: RowProps): JSX.Element {
+function HoldingRow({ holding, purchases, quote, onDelete, onOpenDetail, showKrw, usdKrw }: RowProps): JSX.Element {
   const flash = useFlashOnChange(quote?.lastPrice)
+
+  // Holding.quantity/avgPrice는 등록 시점 값 그대로라, 그 뒤 '매매 이력'에 기록한 실제
+  // 매수/매도까지 반영한 진짜 현재 수량/평단가를 다시 계산해서 화면에 보여준다.
+  const position = deriveCurrentPosition(
+    holding,
+    purchases.filter((p) => p.holdingId === holding.id)
+  )
   const priceKnown = quote && quote.currency === holding.currency
-  const pl = priceKnown ? (quote.lastPrice - holding.avgPrice) * holding.quantity : null
+  const pl = priceKnown ? (quote.lastPrice - position.avgPrice) * position.quantity : null
 
   // 이 행에만 적용할 환산 배율. USD 종목이고 토글이 켜져 있고 환율을 실제로 가져왔을 때만 적용
   const convert = showKrw && holding.currency === 'USD' && usdKrw != null
@@ -58,9 +67,9 @@ function HoldingRow({ holding, quote, onDelete, onOpenDetail, showKrw, usdKrw }:
           {holding.name} <span className="muted">({holding.ticker})</span>
         </span>
       </td>
-      <td>{holding.quantity.toLocaleString()}</td>
-      <td>{formatMoney(holding.avgPrice * fx, displayCurrency)}</td>
-      <td>{formatMoney(holding.quantity * holding.avgPrice * fx, displayCurrency)}</td>
+      <td>{position.quantity.toLocaleString()}</td>
+      <td>{formatMoney(position.avgPrice * fx, displayCurrency)}</td>
+      <td>{formatMoney(position.totalCost * fx, displayCurrency)}</td>
       <td className={flash ? `flash-${flash}` : ''}>
         {quote ? formatMoney(quote.lastPrice * (convert ? fx : 1), convert ? displayCurrency : quote.currency) : '—'}
       </td>
@@ -87,8 +96,13 @@ export default function HoldingsPage({ profileId, holdings, onChanged, onOpenDet
   const [submitting, setSubmitting] = useState(false)
   const [manualEntry, setManualEntry] = useState(false)
   const [showKrw, setShowKrw] = useState(false)
+  const [purchases, setPurchases] = useState<ManualPurchase[]>([])
 
   const { usdKrw, lastUpdated: fxLastUpdated } = useFxRates()
+
+  useEffect(() => {
+    window.api.manualPurchases.list(profileId).then(setPurchases)
+  }, [profileId])
 
   const {
     quotes,
@@ -116,7 +130,17 @@ export default function HoldingsPage({ profileId, holdings, onChanged, onOpenDet
     {} as Record<Broker, Holding[]>
   )
 
-  const totalValue = holdings.reduce((sum, h) => sum + h.quantity * h.avgPrice, 0)
+  // 헤더의 "총 매입금액 ...원" 배지는 원화 표시라 KRW 종목만 합산한다(USD를 섞어 더치지 않기
+  // 위해). 매매 이력까지 반영한 실제 투입원금(등록 시점 값 + 그 뒤 매수/매도)을 기준으로 한다.
+  const totalValue = holdings
+    .filter((h) => h.currency === 'KRW')
+    .reduce((sum, h) => {
+      const position = deriveCurrentPosition(
+        h,
+        purchases.filter((p) => p.holdingId === h.id)
+      )
+      return sum + position.totalCost
+    }, 0)
   const heldCurrencies = [...new Set(holdings.map((h) => h.currency))]
   const hasUsdHoldings = holdings.some((h) => h.currency === 'USD')
 
@@ -294,6 +318,7 @@ export default function HoldingsPage({ profileId, holdings, onChanged, onOpenDet
                 <HoldingRow
                   key={h.id}
                   holding={h}
+                  purchases={purchases}
                   quote={quotes[h.ticker]}
                   onDelete={handleDelete}
                   onOpenDetail={onOpenDetail}

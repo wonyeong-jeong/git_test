@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { CartesianGrid, Legend, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { AssetSnapshot, Holding, ManualPurchase } from '../../types'
 import { buildCumulativeTimeline, mergeCostBasisAndSnapshots, type CumulativeDelta } from '../../domain/assetGrowth'
+import { deriveCurrentPosition } from '../../domain/position'
 
 interface Props {
   profileId: string
@@ -36,10 +37,17 @@ export default function AssetGrowthPage({ profileId, holdings }: Props): JSX.Ele
         // 실시간 시세 자체가 아니다(그건 보유종목 페이지의 역할).
       }
 
+      // Holding.quantity/avgPrice는 등록 시점 값 그대로라, '매매 이력'에 기록된 실제 매수/매도까지
+      // 반영한 진짜 현재 수량을 다시 계산해서 평가금액을 구한다. 시세를 못 가져온 종목은 그
+      // 평단가를 대신 쓴다(정확한 현재가는 아니지만 원금 추이만큼은 항상 남기기 위함).
       const valuesByCurrency: Record<string, number> = {}
       for (const h of holdings) {
-        const price = quoteByTicker.get(h.ticker) ?? h.avgPrice
-        valuesByCurrency[h.currency] = (valuesByCurrency[h.currency] ?? 0) + h.quantity * price
+        const position = deriveCurrentPosition(
+          h,
+          purchases.filter((p) => p.holdingId === h.id)
+        )
+        const price = quoteByTicker.get(h.ticker) ?? position.avgPrice
+        valuesByCurrency[h.currency] = (valuesByCurrency[h.currency] ?? 0) + position.quantity * price
       }
 
       const snapshot = await window.api.assetSnapshots.record(profileId, valuesByCurrency)
@@ -55,9 +63,11 @@ export default function AssetGrowthPage({ profileId, holdings }: Props): JSX.Ele
     return () => {
       cancelled = true
     }
-    // holdings는 참조가 자주 바뀔 수 있어 개수만 의존성으로 둔다 (스냅샷은 하루 1번이면 충분)
+    // holdings/purchases는 참조가 자주 바뀔 수 있어 개수만 의존성으로 둔다 (스냅샷은 하루
+    // 1번이면 충분). purchases.length를 넣어둔 건 최초 마운트 시 매매 이력이 아직 로딩 전이라
+    // 반영 안 된 채로 기록되는 걸 막기 위함 — 로딩 완료 후 한 번 더 정확히 다시 기록된다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [profileId, holdings.length])
+  }, [profileId, holdings.length, purchases.length])
 
   const currencies = [...new Set(holdings.map((h) => h.currency))]
 
