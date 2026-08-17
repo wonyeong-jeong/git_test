@@ -53,6 +53,7 @@ function HoldingRow({ holding, purchases, quote, onDelete, onOpenDetail, showKrw
   )
   const priceKnown = quote && quote.currency === holding.currency
   const pl = priceKnown ? (quote.lastPrice - position.avgPrice) * position.quantity : null
+  const plPercent = pl !== null && position.totalCost > 0 ? (pl / position.totalCost) * 100 : null
 
   // 이 행에만 적용할 환산 배율. USD 종목이고 토글이 켜져 있고 환율을 실제로 가져왔을 때만 적용
   const convert = showKrw && holding.currency === 'USD' && usdKrw != null
@@ -74,7 +75,20 @@ function HoldingRow({ holding, purchases, quote, onDelete, onOpenDetail, showKrw
         {quote ? formatMoney(quote.lastPrice * (convert ? fx : 1), convert ? displayCurrency : quote.currency) : '—'}
       </td>
       <td className={pl === null ? '' : pl >= 0 ? 'num-positive' : 'num-negative'}>
-        {pl === null ? '—' : `${pl >= 0 ? '+' : ''}${Math.round(pl * fx).toLocaleString()}`}
+        {pl === null ? (
+          '—'
+        ) : (
+          <>
+            {pl >= 0 ? '+' : ''}
+            {Math.round(pl * fx).toLocaleString()}
+            {plPercent !== null && (
+              <span className="small" style={{ marginLeft: 6, opacity: 0.85 }}>
+                ({plPercent >= 0 ? '+' : ''}
+                {plPercent.toFixed(1)}%)
+              </span>
+            )}
+          </>
+        )}
       </td>
       <td>
         <button

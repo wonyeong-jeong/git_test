@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { Holding, Profile, WatchlistItem } from './types'
+import HomePage, { type HomeNavTarget } from './features/home/HomePage'
 import HoldingsPage from './features/holdings/HoldingsPage'
 import ContributionPlanPage from './features/contribution-plan/ContributionPlanPage'
 import PortfolioSimulationPage from './features/portfolio-simulation/PortfolioSimulationPage'
@@ -13,7 +14,8 @@ import StockDetailPage from './features/stock-detail/StockDetailPage'
 import BrokerSettingsPage from './features/settings/BrokerSettingsPage'
 import MarketTickerBar from './components/MarketTickerBar'
 
-type Tab =
+export type Tab =
+  | 'home'
   | 'holdings'
   | 'plans'
   | 'portfolio'
@@ -26,7 +28,7 @@ type Tab =
 
 export default function App(): JSX.Element {
   const [profile, setProfile] = useState<Profile | null>(null)
-  const [tab, setTab] = useState<Tab>('holdings')
+  const [tab, setTab] = useState<Tab>('home')
   const [holdings, setHoldings] = useState<Holding[]>([])
   // 보유 종목 목록에서 종목을 클릭하면 여기 담긴다 — 사이드바 탭이 아니라 "드릴다운" 화면이라
   // 별도 Tab 값을 만들지 않고, 값이 있으면 어떤 탭이든 상관없이 상세 화면을 덮어 그린다.
@@ -79,6 +81,9 @@ export default function App(): JSX.Element {
           <div className="brand">📈 나의 포트폴리오</div>
           <div className="profile-name">{profile.name}</div>
           <nav>
+            <button className={tab === 'home' ? 'active' : ''} onClick={() => selectTab('home')}>
+              <span className="nav-icon">🏠</span>홈
+            </button>
             <button className={tab === 'holdings' ? 'active' : ''} onClick={() => selectTab('holdings')}>
               <span className="nav-icon">💼</span>보유 종목
             </button>
@@ -119,6 +124,14 @@ export default function App(): JSX.Element {
             <WatchlistDetailPage item={selectedWatchlistItem} onBack={() => setSelectedWatchlistItem(null)} />
           ) : (
             <>
+              {tab === 'home' && (
+                <HomePage
+                  profileId={profile.id}
+                  holdings={holdings}
+                  onOpenDetail={setSelectedHoldingId}
+                  onNavigate={(target: HomeNavTarget) => selectTab(target)}
+                />
+              )}
               {tab === 'holdings' && (
                 <HoldingsPage
                   profileId={profile.id}
