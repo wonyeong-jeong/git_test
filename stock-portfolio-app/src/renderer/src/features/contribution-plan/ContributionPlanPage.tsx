@@ -49,6 +49,7 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
   const [purchases, setPurchases] = useState<ManualPurchase[]>([])
   const [form, setForm] = useState(emptyForm)
   const [selectedPlanId, setSelectedPlanId] = useState<string | null>(null)
+  const [fetchingDividendYield, setFetchingDividendYield] = useState(false)
 
   // what-if 조정용 상태 (목표3): 기본값은 계획값 그대로, 사용자가 바꾸면 즉시 재계산
   const [monthsHorizon, setMonthsHorizon] = useState(24)
@@ -345,14 +346,35 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
         </label>
         <label>
           가정 연 배당수익률(%)
-          <input
-            type="number"
-            step="0.1"
-            min="0"
-            value={form.assumedDividendYieldPercent}
-            onChange={(e) => setForm({ ...form, assumedDividendYieldPercent: e.target.value })}
-            placeholder="배당 없으면 0"
-          />
+          <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+            <input
+              type="number"
+              step="0.1"
+              min="0"
+              value={form.assumedDividendYieldPercent}
+              onChange={(e) => setForm({ ...form, assumedDividendYieldPercent: e.target.value })}
+              placeholder="배당 없으면 0"
+            />
+            <button
+              type="button"
+              className="link-plain"
+              disabled={!form.holdingId || fetchingDividendYield}
+              onClick={async () => {
+                if (!formHolding) return
+                setFetchingDividendYield(true)
+                try {
+                  const info = await window.api.marketData.getDividendInfo(formHolding.ticker, formHolding.currency)
+                  if (info?.dividendYieldPercent != null) {
+                    setForm((f) => ({ ...f, assumedDividendYieldPercent: String(info.dividendYieldPercent) }))
+                  }
+                } finally {
+                  setFetchingDividendYield(false)
+                }
+              }}
+            >
+              {fetchingDividendYield ? '조회 중…' : '자동 조회'}
+            </button>
+          </div>
         </label>
         <button type="submit" className="primary" disabled={holdings.length === 0}>
           적립식 계획 추가

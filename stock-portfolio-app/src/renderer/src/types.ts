@@ -120,3 +120,18 @@ export interface FxRate {
   changeAmount: number
   changeRatio: number
 }
+
+export interface HistoricalPricePoint {
+  /** YYYY-MM-DD */
+  date: string
+  close: number
+}
+
+export interface DividendInfo {
+  /** 최근 결산 기준 연간 주당배당금 (종목 통화) */
+  dividendPerShare: number | null
+  dividendYieldPercent: number | null
+  /** 해외 종목만 제공됨 (YYYY-MM-DD) */
+  lastDividendPaidAt: string | null
+  lastExDividendAt: string | null
+}

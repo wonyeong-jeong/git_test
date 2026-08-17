@@ -10,7 +10,7 @@ import {
 import type { AssetSnapshot, ContributionPlan, DividendRecord, Holding, ManualPurchase, WatchlistItem } from './types'
 import { clearCredentials, hasCredentials, saveCredentials } from './broker/credentialStore'
 import { getQuotes } from './broker/tossClient'
-import { getFxRates, getMajorIndices } from './marketData/naverClient'
+import { getDividendInfo, getFxRates, getHistoricalPrices, getMajorIndices } from './marketData/naverClient'
 
 export function registerIpcHandlers(): void {
   ipcMain.handle('profiles:list', () => listProfiles())
@@ -161,6 +161,10 @@ export function registerIpcHandlers(): void {
   // 로그인/키 없이 접근 가능한 공개 시장 데이터라 profileId가 필요 없다
   ipcMain.handle('market-data:getIndices', () => getMajorIndices())
   ipcMain.handle('market-data:getFxRates', () => getFxRates())
+  ipcMain.handle('market-data:getHistoricalPrices', (_e, ticker: string, currency: 'KRW' | 'USD', fromDate: string, toDate: string) =>
+    getHistoricalPrices(ticker, currency, fromDate, toDate)
+  )
+  ipcMain.handle('market-data:getDividendInfo', (_e, ticker: string, currency: 'KRW' | 'USD') => getDividendInfo(ticker, currency))
 
   ipcMain.handle('asset-snapshots:list', (_e, profileId: string) => getProfileData(profileId).assetSnapshots)
 

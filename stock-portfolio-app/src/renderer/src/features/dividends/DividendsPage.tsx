@@ -10,7 +10,7 @@ import {
   XAxis,
   YAxis
 } from 'recharts'
-import type { ContributionPlan, DividendRecord, Holding, ManualPurchase } from '../../types'
+import type { ContributionPlan, DividendInfo, DividendRecord, Holding, ManualPurchase } from '../../types'
 import { projectPlanContributionGrowth } from '../../domain/compound'
 import {
   aggregateDividendProjections,
@@ -22,7 +22,7 @@ import {
 import { deriveCurrentPosition } from '../../domain/position'
 import { calculateDividendTax } from '../../domain/tax'
 import { useFxRates } from '../../hooks/useFxRates'
-import { formatAxisTick, formatMoney } from '../../utils/format'
+import { formatAxisTick, formatMoney, formatQuantity } from '../../utils/format'
 
 const GRANULARITY_LABELS: Record<DividendGranularity, string> = { WEEK: '주간', MONTH: '월간', YEAR: '연간' }
 /** 구간이 너무 많아지면 막대그래프가 읽기 어려워지므로 최근 N개만 보여준다 */
@@ -64,6 +64,12 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
   const [combineWithFx, setCombineWithFx] = useState(false)
   const { usdKrw, lastUpdated: fxLastUpdated } = useFxRates()
 
+  // "받은 배당/앞으로 받을 배당을 자동으로 계산" — 종목별 실제 배당 데이터(최근 결산 기준 주당
+  // 배당금·배당수익률)를 네이버에서 조회해서, 사용자가 가정 배당수익률을 직접 입력하지 않아도
+  // 지금 보유수량 기준 예상 연간 배당금을 자동으로 계산해 보여준다.
+  const [dividendInfoByHolding, setDividendInfoByHolding] = useState<Record<string, DividendInfo | null>>({})
+  const [dividendInfoLoading, setDividendInfoLoading] = useState(false)
+
   async function refreshRecords(): Promise<void> {
     setRecords(await window.api.dividends.list(profileId))
   }
@@ -74,6 +80,73 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
     window.api.manualPurchases.list(profileId).then(setPurchases)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId])
+
+  useEffect(() => {
+    if (holdings.length === 0) return
+    let cancelled = false
+
+    async function loadDividendInfo(): Promise<void> {
+      setDividendInfoLoading(true)
+      const results = await Promise.allSettled(
+        holdings.map(async (h) => ({ holdingId: h.id, info: await window.api.marketData.getDividendInfo(h.ticker, h.currency) }))
+      )
+      if (cancelled) return
+      const byHolding: Record<string, DividendInfo | null> = {}
+      for (const r of results) {
+        if (r.status === 'fulfilled') byHolding[r.value.holdingId] = r.value.info
+        // 실패한 종목은 그냥 빠진다 — 아래에서 정보 없음으로 처리된다.
+      }
+      setDividendInfoByHolding(byHolding)
+      setDividendInfoLoading(false)
+    }
+
+    loadDividendInfo()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileId, holdings.length])
+
+  // 현재 보유수량(매매 이력까지 반영) × 종목별 자동 조회된 주당배당금 = 자동 계산된 예상 연간
+  // 배당금. 주당배당금을 못 구했으면 배당수익률 × 평단가로 대신 추정한다(둘 다 없으면 배당이
+  // 없거나 데이터를 못 가져온 것으로 보고 제외).
+  const autoDividendRows = useMemo(() => {
+    return holdings
+      .map((h) => {
+        const position = deriveCurrentPosition(
+          h,
+          purchases.filter((p) => p.holdingId === h.id)
+        )
+        if (position.quantity <= 0) return null
+        const info = dividendInfoByHolding[h.id]
+        if (!info) return null
+        const perShare = info.dividendPerShare ?? (info.dividendYieldPercent != null ? (position.avgPrice * info.dividendYieldPercent) / 100 : null)
+        if (perShare == null) return null
+        return { holding: h, position, info, expectedAnnualDividend: perShare * position.quantity }
+      })
+      .filter((r): r is { holding: Holding; position: ReturnType<typeof deriveCurrentPosition>; info: DividendInfo; expectedAnnualDividend: number } => r !== null)
+  }, [holdings, purchases, dividendInfoByHolding])
+
+  const autoDividendCurrencies = useMemo(() => [...new Set(autoDividendRows.map((r) => r.holding.currency))], [autoDividendRows])
+
+  const autoDividendTotalsByCurrency = useMemo(() => {
+    const result: Record<string, number> = {}
+    for (const currency of autoDividendCurrencies) {
+      result[currency] = autoDividendRows
+        .filter((r) => r.holding.currency === currency)
+        .reduce((sum, r) => sum + r.expectedAnnualDividend, 0)
+    }
+    return result
+  }, [autoDividendRows, autoDividendCurrencies])
+
+  const canCombineAuto = combineWithFx && usdKrw != null && autoDividendCurrencies.length > 1
+  const autoDividendCombinedKrw = useMemo(() => {
+    if (!canCombineAuto) return null
+    return autoDividendRows.reduce((sum, r) => {
+      const fx = r.holding.currency === 'USD' ? (usdKrw as number) : 1
+      return sum + r.expectedAnnualDividend * fx
+    }, 0)
+  }, [canCombineAuto, autoDividendRows, usdKrw])
 
   async function handleSubmit(e: FormEvent): Promise<void> {
     e.preventDefault()
@@ -214,7 +287,7 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
         <h1>배당</h1>
       </div>
 
-      {currenciesWithDividends.length > 1 && (
+      {(currenciesWithDividends.length > 1 || autoDividendCurrencies.length > 1) && (
         <>
           <p className="muted small" style={{ marginTop: -8, marginBottom: 12 }}>
             보유 통화가 여러 개라(KRW/USD) 기본적으로는 환율 없이 더하지 않고 통화별로 따로 집계해서 보여드려요.
@@ -240,6 +313,81 @@ export default function DividendsPage({ profileId, holdings }: Props): JSX.Eleme
           </div>
         </>
       )}
+
+      <div className="card">
+        <h2 style={{ marginTop: 0, fontSize: 15 }}>
+          자동 계산된 예상 연간 배당금
+          {dividendInfoLoading && <span className="muted small" style={{ marginLeft: 8, fontWeight: 400 }}>배당 데이터 조회 중…</span>}
+        </h2>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          가정 배당수익률을 직접 입력하지 않아도, 지금 보유 중인 종목의 최근 결산 기준 실제 주당배당금(네이버 금융
+          공개 데이터) × 현재 보유수량으로 자동 계산한 값입니다. 기업이 배당을 바꾸면 달라질 수 있는 추정치이고,
+          "실제로 받은 배당"은 아래 표에 직접 기록해야 정확히 남습니다.
+        </p>
+
+        {autoDividendRows.length === 0 ? (
+          <p className="empty-hint">
+            {dividendInfoLoading ? '조회 중이에요…' : '배당 데이터를 찾은 보유 종목이 없어요 (무배당 종목이거나 조회에 실패했을 수 있어요).'}
+          </p>
+        ) : (
+          <>
+            {canCombineAuto && autoDividendCombinedKrw != null && (
+              <div className="summary-cards" style={{ marginBottom: 12 }}>
+                <div className="summary-card highlight">
+                  <span className="label">전체 합산(원화 환산) 예상 연간 배당금 (세전)</span>
+                  <span className="value">{formatMoney(autoDividendCombinedKrw, 'KRW')}</span>
+                </div>
+                <div className="summary-card">
+                  <span className="label">세후 환산</span>
+                  <span className="value">{formatMoney(calculateDividendTax(autoDividendCombinedKrw).netDividend, 'KRW')}</span>
+                </div>
+              </div>
+            )}
+
+            {autoDividendCurrencies.map((currency) => (
+              <div key={currency} className="summary-cards" style={{ marginBottom: 12 }}>
+                <div className="summary-card highlight">
+                  <span className="label">{currency} 예상 연간 배당금 (세전)</span>
+                  <span className="value">{formatMoney(autoDividendTotalsByCurrency[currency], currency)}</span>
+                </div>
+                <div className="summary-card">
+                  <span className="label">{currency} 세후 환산</span>
+                  <span className="value">
+                    {formatMoney(calculateDividendTax(autoDividendTotalsByCurrency[currency]).netDividend, currency)}
+                  </span>
+                </div>
+              </div>
+            ))}
+
+            <table>
+              <thead>
+                <tr>
+                  <th>종목</th>
+                  <th>보유수량</th>
+                  <th>최근 결산 주당배당금</th>
+                  <th>배당수익률</th>
+                  <th>예상 연간 배당금 (세전)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {autoDividendRows.map((r) => (
+                  <tr key={r.holding.id}>
+                    <td>
+                      {r.holding.name} <span className="muted">({r.holding.ticker})</span>
+                    </td>
+                    <td>{formatQuantity(r.position.quantity)}</td>
+                    <td>
+                      {r.info.dividendPerShare != null ? formatMoney(r.info.dividendPerShare, r.holding.currency) : '—'}
+                    </td>
+                    <td>{r.info.dividendYieldPercent != null ? `${r.info.dividendYieldPercent.toFixed(2)}%` : '—'}</td>
+                    <td>{formatMoney(r.expectedAnnualDividend, r.holding.currency)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
+        )}
+      </div>
 
       {canCombine && combinedTotalsKrw && (
         <div className="summary-cards" style={{ marginBottom: 12 }}>

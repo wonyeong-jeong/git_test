@@ -9,7 +9,7 @@ import type {
   WatchlistItem
 } from '../main/types'
 import type { Quote } from '../main/broker/tossClient'
-import type { FxRate, IndexQuote } from '../main/marketData/naverClient'
+import type { DividendInfo, FxRate, HistoricalPricePoint, IndexQuote } from '../main/marketData/naverClient'
 
 const api = {
   profiles: {
@@ -78,7 +78,11 @@ const api = {
   },
   marketData: {
     getIndices: (): Promise<IndexQuote[]> => ipcRenderer.invoke('market-data:getIndices'),
-    getFxRates: (): Promise<FxRate[]> => ipcRenderer.invoke('market-data:getFxRates')
+    getFxRates: (): Promise<FxRate[]> => ipcRenderer.invoke('market-data:getFxRates'),
+    getHistoricalPrices: (ticker: string, currency: 'KRW' | 'USD', fromDate: string, toDate: string): Promise<HistoricalPricePoint[]> =>
+      ipcRenderer.invoke('market-data:getHistoricalPrices', ticker, currency, fromDate, toDate),
+    getDividendInfo: (ticker: string, currency: 'KRW' | 'USD'): Promise<DividendInfo | null> =>
+      ipcRenderer.invoke('market-data:getDividendInfo', ticker, currency)
   }
 }
 

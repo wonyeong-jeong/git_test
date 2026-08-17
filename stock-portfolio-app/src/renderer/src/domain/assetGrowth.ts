@@ -46,6 +46,7 @@ export interface GrowthChartPoint {
   date: string
   cumulativeCost?: number
   snapshotValue?: number
+  historicalValue?: number
 }
 
 /**
@@ -53,9 +54,26 @@ export interface GrowthChartPoint {
  * 원금은 계단식으로 이어지도록(직전 값을 유지) 채우고, 스냅샷은 실제 기록된 날짜에만 값을 둔다.
  */
 export function mergeCostBasisAndSnapshots(costBasis: CumulativePoint[], snapshots: SnapshotPoint[]): GrowthChartPoint[] {
+  return mergeGrowthSeries(costBasis, snapshots, [])
+}
+
+/**
+ * mergeCostBasisAndSnapshots에 "실제 과거 시세로 복원한 평가금액"(historicalValuation.ts의
+ * buildHistoricalValueSeries 결과)까지 세 번째 축으로 얹는다. historicalValue는 이미 그 자체로
+ * 조밀한 시계열이라(시세가 있는 모든 날짜) 원금처럼 계단식으로 채우지 않고 자기 날짜에만 값을 둔다
+ * — 차트에서 connectNulls로 점 사이를 이어서 보여준다.
+ */
+export function mergeGrowthSeries(
+  costBasis: CumulativePoint[],
+  snapshots: SnapshotPoint[],
+  historicalValues: SnapshotPoint[]
+): GrowthChartPoint[] {
   const sortedCost = [...costBasis].sort((a, b) => a.date.localeCompare(b.date))
   const snapshotByDate = new Map(snapshots.map((s) => [s.date, s.value]))
-  const allDates = [...new Set([...sortedCost.map((p) => p.date), ...snapshots.map((s) => s.date)])].sort()
+  const historicalByDate = new Map(historicalValues.map((s) => [s.date, s.value]))
+  const allDates = [
+    ...new Set([...sortedCost.map((p) => p.date), ...snapshots.map((s) => s.date), ...historicalValues.map((s) => s.date)])
+  ].sort()
 
   let lastCost: number | undefined
   let costIndex = 0
@@ -64,6 +82,11 @@ export function mergeCostBasisAndSnapshots(costBasis: CumulativePoint[], snapsho
       lastCost = sortedCost[costIndex].cumulativeValue
       costIndex++
     }
-    return { date, cumulativeCost: lastCost, snapshotValue: snapshotByDate.get(date) }
+    return {
+      date,
+      cumulativeCost: lastCost,
+      snapshotValue: snapshotByDate.get(date),
+      historicalValue: historicalByDate.get(date)
+    }
   })
 }
