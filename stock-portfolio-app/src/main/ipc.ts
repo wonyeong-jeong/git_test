@@ -61,6 +61,20 @@ export function registerIpcHandlers(): void {
     return true
   })
 
+  // 잘못 입력한 증권사/종목/수량/평단가/통화를 고칠 수 있게 한다. holdingId/profileId/
+  // createdAt은 바꾸지 않는다(등록일은 과거 시세 소급 계산의 시작점으로도 쓰이므로 그대로 둠).
+  ipcMain.handle(
+    'holdings:update',
+    (_e, profileId: string, holdingId: string, updates: Partial<Omit<Holding, 'id' | 'profileId' | 'createdAt'>>) => {
+      const data = getProfileData(profileId)
+      const idx = data.holdings.findIndex((h) => h.id === holdingId)
+      if (idx === -1) return null
+      data.holdings[idx] = { ...data.holdings[idx], ...updates }
+      saveProfileData(profileId, data)
+      return data.holdings[idx]
+    }
+  )
+
   ipcMain.handle('contribution-plans:list', (_e, profileId: string) => getProfileData(profileId).contributionPlans)
 
   ipcMain.handle(

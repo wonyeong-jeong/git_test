@@ -72,20 +72,25 @@ export default function HomePage({ profileId, holdings, onOpenDetail, onNavigate
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [holdings.length])
 
+  // 전량 매도해서 보유수량이 0이 된 종목은(매매 이력에 반영됨) 여기서 빠진다 — "보유 비중"
+  // 화면에 0% 조각이나 청산된 종목이 섞여 나오지 않게 하기 위함(보유 종목 페이지와 동일한
+  // 기준). 완전히 지우는 게 아니라 홈 화면 요약에서만 제외되고, 데이터 자체는 그대로 있다.
   const positions = useMemo(
     () =>
-      holdings.map((h) => {
-        const position = deriveCurrentPosition(
-          h,
-          purchases.filter((p) => p.holdingId === h.id)
-        )
-        const quote = quotes[h.ticker]
-        const priceKnown = quote && quote.currency === h.currency
-        const price = priceKnown ? quote.lastPrice : position.avgPrice
-        const value = position.quantity * price
-        const plPercent = position.totalCost > 0 ? ((value - position.totalCost) / position.totalCost) * 100 : null
-        return { holding: h, position, price, value, priceKnown, plPercent }
-      }),
+      holdings
+        .map((h) => {
+          const position = deriveCurrentPosition(
+            h,
+            purchases.filter((p) => p.holdingId === h.id)
+          )
+          const quote = quotes[h.ticker]
+          const priceKnown = quote && quote.currency === h.currency
+          const price = priceKnown ? quote.lastPrice : position.avgPrice
+          const value = position.quantity * price
+          const plPercent = position.totalCost > 0 ? ((value - position.totalCost) / position.totalCost) * 100 : null
+          return { holding: h, position, price, value, priceKnown, plPercent }
+        })
+        .filter((p) => p.position.quantity > 0.0001),
     [holdings, purchases, quotes]
   )
 

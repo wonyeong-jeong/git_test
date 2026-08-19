@@ -28,7 +28,12 @@ const api = {
       input: Omit<Holding, 'id' | 'profileId' | 'createdAt'>
     ): Promise<Holding> => ipcRenderer.invoke('holdings:create', profileId, input),
     delete: (profileId: string, holdingId: string): Promise<boolean> =>
-      ipcRenderer.invoke('holdings:delete', profileId, holdingId)
+      ipcRenderer.invoke('holdings:delete', profileId, holdingId),
+    update: (
+      profileId: string,
+      holdingId: string,
+      updates: Partial<Omit<Holding, 'id' | 'profileId' | 'createdAt'>>
+    ): Promise<Holding | null> => ipcRenderer.invoke('holdings:update', profileId, holdingId, updates)
   },
   contributionPlans: {
     list: (profileId: string): Promise<ContributionPlan[]> =>
