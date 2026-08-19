@@ -149,7 +149,13 @@ export default function App(): JSX.Element {
               {tab === 'portfolio' && <PortfolioSimulationPage profileId={profile.id} holdings={holdings} />}
               {tab === 'dividends' && <DividendsPage profileId={profile.id} holdings={holdings} />}
               {tab === 'watchlist' && <WatchlistPage profileId={profile.id} onOpenDetail={openWatchlistDetail} />}
-              {tab === 'transactions' && <TransactionsPage profileId={profile.id} holdings={holdings} />}
+              {tab === 'transactions' && (
+                <TransactionsPage
+                  profileId={profile.id}
+                  holdings={holdings}
+                  onHoldingsChanged={() => refreshHoldings(profile.id)}
+                />
+              )}
               {tab === 'calendar' && <CalendarPage profileId={profile.id} holdings={holdings} />}
               {tab === 'assetGrowth' && <AssetGrowthPage profileId={profile.id} holdings={holdings} />}
               {tab === 'goals' && <GoalsPage profileId={profile.id} holdings={holdings} />}
