@@ -1160,3 +1160,69 @@ tbody tr:last-child td {
   font-size: 22px;
   line-height: 1;
 }
+
+/* ---------- 홈 대시보드 — 보유 비중 원형 그래프 ---------- */
+
+.home-pie-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+.home-pie-legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 160px;
+}
+
+.home-pie-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.home-pie-legend li.clickable {
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 3px 6px;
+  margin: 0 -6px;
+  transition: background 0.12s ease;
+}
+
+.home-pie-legend li.clickable:hover {
+  background: var(--bg);
+}
+
+.home-pie-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  flex-shrink: 0;
+}
+
+.home-pie-legend-name {
+  flex: 1;
+  font-weight: 600;
+}
+
+.home-insights {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--muted-strong);
+}
+
+.home-insights p {
+  margin: 0;
+}

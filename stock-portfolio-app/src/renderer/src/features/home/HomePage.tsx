@@ -1,12 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Area, AreaChart, Cell, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import type { AssetSnapshot, ContributionPlan, DividendRecord, Holding, ManualPurchase } from '../../types'
 import StockAvatar from '../../components/StockAvatar'
+import StockPriceChart from '../../components/StockPriceChart'
 import { nextScheduledEvents } from '../../domain/contributionSchedule'
 import { deriveCurrentPosition } from '../../domain/position'
+import { evaluatePortfolioInsights } from '../../domain/portfolioInsights'
 import { useAutoRefreshQuotes } from '../../hooks/useAutoRefreshQuotes'
 import { useFxRates } from '../../hooks/useFxRates'
 import { formatMoney } from '../../utils/format'
+
+/** 홈 화면 원형 그래프용 고정 순서 카테고리 팔레트 — 인접 쌍 CVD 대비를 검증해둔 값(라이트
+ * 모드)이라 임의로 색을 늘리거나 순서를 바꾸지 않는다. 7개를 넘어가면 나머지는 "기타"로
+ * 접어서 회색 하나로 묶는다(카테고리 색을 계속 새로 만들지 않기 위함). */
+const CATEGORY_COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7']
+const OTHER_COLOR = '#9ca3af'
+const MAX_PIE_SLICES = 7
 
 export type HomeNavTarget = 'plans' | 'portfolio' | 'dividends' | 'watchlist' | 'calendar' | 'assetGrowth' | 'goals'
 
@@ -126,6 +135,61 @@ export default function HomePage({ profileId, holdings, onOpenDetail, onNavigate
 
   const topHoldings = useMemo(() => [...positions].sort((a, b) => b.value - a.value).slice(0, 5), [positions])
 
+  // 원형 그래프 & 포트폴리오 평가는 통화를 하나로(원화) 합친 값이 있어야 비중 계산이 말이
+  // 된다 — fxReady가 아니면(환율 아직 로딩 중) 빈 배열로 둔다.
+  const positionsKrw = useMemo(() => {
+    if (!fxReady) return []
+    return positions.map((p) => ({ ...p, valueKrw: p.value * fxFor(p.holding.currency) }))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [positions, fxReady, needsFx, usdKrw])
+
+  const pieData = useMemo(() => {
+    const sorted = [...positionsKrw].sort((a, b) => b.valueKrw - a.valueKrw)
+    const head = sorted.slice(0, MAX_PIE_SLICES).map((p, i) => ({
+      name: p.holding.name,
+      holdingId: p.holding.id,
+      value: p.valueKrw,
+      color: CATEGORY_COLORS[i]
+    }))
+    const rest = sorted.slice(MAX_PIE_SLICES)
+    if (rest.length > 0) {
+      head.push({
+        name: '기타',
+        holdingId: null as unknown as string,
+        value: rest.reduce((sum, p) => sum + p.valueKrw, 0),
+        color: OTHER_COLOR
+      })
+    }
+    return head
+  }, [positionsKrw])
+
+  const currencyValuesKrw = useMemo(() => {
+    const result: Record<string, number> = {}
+    for (const p of positionsKrw) {
+      result[p.holding.currency] = (result[p.holding.currency] ?? 0) + p.valueKrw
+    }
+    return result
+  }, [positionsKrw])
+
+  const insights = useMemo(
+    () =>
+      evaluatePortfolioInsights(
+        positionsKrw.map((p) => ({ holdingId: p.holding.id, name: p.holding.name, valueKrw: p.valueKrw })),
+        currencyValuesKrw
+      ),
+    [positionsKrw, currencyValuesKrw]
+  )
+
+  // 원형 그래프 조각이나 보유종목 목록을 누르면 그 종목의 실제 주가 차트를 같은 자리에 펼쳐서
+  // 보여준다 — 상세 페이지로 이동하지 않아도 바로 볼 수 있게.
+  const [selectedHoldingId, setSelectedHoldingId] = useState<string | null>(null)
+  const selectedHolding = holdings.find((h) => h.id === selectedHoldingId) ?? null
+
+  function toggleSelected(holdingId: string | null): void {
+    if (!holdingId) return
+    setSelectedHoldingId((cur) => (cur === holdingId ? null : holdingId))
+  }
+
   const upcomingEvents = useMemo(() => {
     return plans
       .filter((p) => p.active)
@@ -212,28 +276,134 @@ export default function HomePage({ profileId, holdings, onOpenDetail, onNavigate
 
           <div className="home-columns">
             <div className="card">
+              <h2 style={{ marginTop: 0, fontSize: 15 }}>보유 비중{needsFx && <span className="muted small"> (환율 환산 추정)</span>}</h2>
+              {pieData.length === 0 ? (
+                <p className="muted small" style={{ margin: 0 }}>환율을 불러오는 중이라 아직 비중을 계산할 수 없어요…</p>
+              ) : (
+                <div className="home-pie-row">
+                  <div style={{ width: 200, height: 200, flexShrink: 0 }}>
+                    <ResponsiveContainer>
+                      <PieChart>
+                        <Pie
+                          data={pieData}
+                          dataKey="value"
+                          nameKey="name"
+                          innerRadius="58%"
+                          outerRadius="92%"
+                          paddingAngle={2}
+                          stroke="var(--surface)"
+                          strokeWidth={2}
+                          onClick={(entry: { holdingId?: string; payload?: { holdingId?: string } }) =>
+                            toggleSelected(entry.holdingId ?? entry.payload?.holdingId ?? null)
+                          }
+                          style={{ cursor: 'pointer' }}
+                        >
+                          {pieData.map((d) => (
+                            <Cell key={d.name} fill={d.color} />
+                          ))}
+                        </Pie>
+                        <Tooltip formatter={(v: number) => formatMoney(v, 'KRW')} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <ul className="home-pie-legend">
+                    {pieData.map((d) => (
+                      <li
+                        key={d.name}
+                        className={d.holdingId ? 'clickable' : ''}
+                        onClick={() => toggleSelected(d.holdingId)}
+                      >
+                        <span className="home-pie-legend-dot" style={{ background: d.color }} />
+                        <span className="home-pie-legend-name">{d.name}</span>
+                        <span className="muted small">{((d.value / (pieData.reduce((s, x) => s + x.value, 0) || 1)) * 100).toFixed(1)}%</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {insights.topHolding && (
+                <div className="home-insights">
+                  <p>
+                    <strong>{insights.topHolding.name}</strong>이 전체의 <strong>{insights.topHolding.sharePercent.toFixed(1)}%</strong>를
+                    차지해요 —{' '}
+                    {insights.concentrationLevel === 'HIGH'
+                      ? '집중도가 높은 편이에요 ⚠'
+                      : insights.concentrationLevel === 'MEDIUM'
+                        ? '집중도는 보통이에요'
+                        : '한 종목에 쏠려있지 않아요 ✓'}
+                  </p>
+                  <p>
+                    보유 종목 {insights.holdingCount}개 —{' '}
+                    {insights.diversificationLevel === 'LOW'
+                      ? '분산이 낮은 편이에요'
+                      : insights.diversificationLevel === 'MEDIUM'
+                        ? '분산이 적당해요'
+                        : '여러 종목에 잘 나뉘어 있어요 ✓'}
+                  </p>
+                  {Object.keys(insights.currencySharePercent).length > 1 && (
+                    <p>
+                      통화 비중:{' '}
+                      {Object.entries(insights.currencySharePercent)
+                        .map(([c, pct]) => `${c} ${pct.toFixed(0)}%`)
+                        .join(' · ')}
+                    </p>
+                  )}
+                  <p className="muted small" style={{ marginBottom: 0 }}>
+                    정해진 기준(1위 종목 비중·보유 종목 수)으로 자동 계산한 평가입니다 — AI가 아니라 규칙 기반이에요.
+                  </p>
+                </div>
+              )}
+
+              {selectedHolding && (
+                <div style={{ marginTop: 16 }}>
+                  <h3 style={{ fontSize: 13, marginBottom: 8 }}>{selectedHolding.name} 주가 추이 (최근 1년)</h3>
+                  <StockPriceChart ticker={selectedHolding.ticker} currency={selectedHolding.currency} height={200} />
+                </div>
+              )}
+            </div>
+
+            <div className="card">
               <h2 style={{ marginTop: 0, fontSize: 15 }}>보유 비중 상위 종목</h2>
               <ul className="home-holding-list">
                 {topHoldings.map((p) => (
-                  <li key={p.holding.id} className="home-holding-row" onClick={() => onOpenDetail(p.holding.id)}>
-                    <span className="stock-name-cell">
-                      <StockAvatar ticker={p.holding.ticker} name={p.holding.name} />
-                      <span>
-                        <strong>{p.holding.name}</strong>
-                        <span className="muted small" style={{ display: 'block' }}>
-                          {p.holding.ticker}
+                  <li key={p.holding.id}>
+                    <div className="home-holding-row" onClick={() => toggleSelected(p.holding.id)}>
+                      <span className="stock-name-cell">
+                        <StockAvatar ticker={p.holding.ticker} name={p.holding.name} />
+                        <span>
+                          <strong>{p.holding.name}</strong>
+                          <span className="muted small" style={{ display: 'block' }}>
+                            {p.holding.ticker}
+                          </span>
                         </span>
                       </span>
-                    </span>
-                    <span className="home-holding-value">
-                      <span>{formatMoney(p.value, p.holding.currency)}</span>
-                      {p.plPercent !== null && (
-                        <span className={`small ${p.plPercent >= 0 ? 'num-positive' : 'num-negative'}`}>
-                          {p.plPercent >= 0 ? '+' : ''}
-                          {p.plPercent.toFixed(1)}%
-                        </span>
-                      )}
-                    </span>
+                      <span className="home-holding-value">
+                        <span>{formatMoney(p.value, p.holding.currency)}</span>
+                        {p.plPercent !== null && (
+                          <span className={`small ${p.plPercent >= 0 ? 'num-positive' : 'num-negative'}`}>
+                            {p.plPercent >= 0 ? '+' : ''}
+                            {p.plPercent.toFixed(1)}%
+                          </span>
+                        )}
+                      </span>
+                      <button
+                        type="button"
+                        className="link-plain"
+                        style={{ paddingBottom: 0 }}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          onOpenDetail(p.holding.id)
+                        }}
+                      >
+                        상세 →
+                      </button>
+                    </div>
+                    {selectedHoldingId === p.holding.id && (
+                      <div style={{ padding: '0 8px 12px' }}>
+                        <StockPriceChart ticker={p.holding.ticker} currency={p.holding.currency} height={180} />
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
