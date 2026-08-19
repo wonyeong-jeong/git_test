@@ -16,8 +16,8 @@ import {
   projectPlanContributionGrowth,
   summarizeExpectedReturn
 } from '../../domain/compound'
-import { nextScheduledEvents } from '../../domain/contributionSchedule'
-import { buildHistoricalValueSeries, buildQuantityTimeline } from '../../domain/historicalValuation'
+import { AUTO_RECORD_NOTE_PREFIX, findUnrecordedPastEvents, nextScheduledEvents } from '../../domain/contributionSchedule'
+import { buildHistoricalValueSeries, buildQuantityTimeline, findNearestPrice } from '../../domain/historicalValuation'
 import { deriveCurrentPosition } from '../../domain/position'
 import { DEFAULT_TAX_ASSUMPTIONS, calculateCapitalGainsTax, type Market } from '../../domain/tax'
 import { useFxRates } from '../../hooks/useFxRates'
@@ -86,6 +86,10 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
   const [allPlansMonths, setAllPlansMonths] = useState(24)
   const { usdKrw, lastUpdated: fxLastUpdated } = useFxRates()
 
+  const [purchasesLoaded, setPurchasesLoaded] = useState(false)
+  const [autoRecordSummary, setAutoRecordSummary] = useState<string[] | null>(null)
+  const [autoRecording, setAutoRecording] = useState(false)
+
   async function refresh(): Promise<void> {
     const list = await window.api.contributionPlans.list(profileId)
     setPlans(list)
@@ -93,9 +97,98 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
 
   useEffect(() => {
     refresh()
-    window.api.manualPurchases.list(profileId).then(setPurchases)
+    setPurchasesLoaded(false)
+    window.api.manualPurchases.list(profileId).then((list) => {
+      setPurchases(list)
+      setPurchasesLoaded(true)
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [profileId])
+
+  // "그날이 지나면 매매 이력에 자동으로 등록" — 예정된 회차인데 아직 매매 이력에 없고 날짜가
+  // 지난 것들을, 그 날짜의 실제 종가를 체결가로 추정해서 자동으로 기록한다. purchases가 아직
+  // 로딩 전이면(빈 배열) "이미 기록된 날짜"를 잘못 빈 걸로 보고 중복 기록할 수 있으니
+  // purchasesLoaded가 true가 될 때까지 기다린다.
+  useEffect(() => {
+    if (!purchasesLoaded || plans.length === 0 || holdings.length === 0) return
+    let cancelled = false
+
+    async function autoRecordDuePurchases(): Promise<void> {
+      setAutoRecording(true)
+      const today = new Date().toISOString().slice(0, 10)
+      const created: string[] = []
+      // 같은 종목을 가리키는 계획이 두 개 이상일 수 있어서(드물지만 막혀있진 않음), 이번 실행
+      // 중에 새로 기록한 날짜도 계속 반영해가며 추적한다 — 그래야 뒤에 처리되는 계획이 앞에서
+      // 방금 만든 기록을 "아직 없다"고 착각해서 중복 생성하지 않는다.
+      const recordedDatesByHolding = new Map<string, Set<string>>()
+      for (const p of purchases) {
+        const set = recordedDatesByHolding.get(p.holdingId) ?? new Set<string>()
+        set.add(p.date)
+        recordedDatesByHolding.set(p.holdingId, set)
+      }
+
+      try {
+        for (const plan of plans.filter((p) => p.active)) {
+          if (cancelled) return
+          const holding = holdings.find((h) => h.id === plan.holdingId)
+          if (!holding) continue
+
+          let alreadyRecordedDates = recordedDatesByHolding.get(holding.id)
+          if (!alreadyRecordedDates) {
+            alreadyRecordedDates = new Set<string>()
+            recordedDatesByHolding.set(holding.id, alreadyRecordedDates)
+          }
+          const due = findUnrecordedPastEvents(
+            { frequency: plan.frequency, amount: plan.amount, startDate: plan.startDate, endDate: plan.endDate, dayOfMonth: plan.dayOfMonth },
+            today,
+            alreadyRecordedDates
+          )
+          if (due.length === 0) continue
+
+          // 이 계획의 시세 조회는 한 번만 — 가장 이른 미기록 회차부터 오늘까지
+          let prices
+          try {
+            prices = await window.api.marketData.getHistoricalPrices(holding.ticker, holding.currency, due[0].date, today)
+          } catch {
+            continue // 시세를 못 가져오면 이번엔 건너뛰고 다음에 앱을 열 때 다시 시도된다
+          }
+          if (cancelled) return
+          if (prices.length === 0) continue
+
+          for (const ev of due) {
+            if (alreadyRecordedDates.has(ev.date)) continue // 같은 실행 중 다른 계획이 방금 채움
+            const priceInfo = findNearestPrice(prices, ev.date)
+            if (!priceInfo) continue
+            const quantity = plan.contributionType === 'QUANTITY' ? ev.plannedAmount : ev.plannedAmount / priceInfo.close
+            await window.api.manualPurchases.create(profileId, {
+              holdingId: holding.id,
+              side: 'BUY',
+              date: ev.date,
+              quantity,
+              price: priceInfo.close,
+              note: `${AUTO_RECORD_NOTE_PREFIX} "${plan.name}" 예정 회차 자동 기록 (${priceInfo.date} 종가 기준 추정 — 실제 체결가와 다르면 직접 수정하세요)`
+            })
+            alreadyRecordedDates.add(ev.date)
+            created.push(`${holding.name} ${ev.date}`)
+          }
+        }
+      } finally {
+        if (!cancelled) {
+          setAutoRecording(false)
+          if (created.length > 0) {
+            setAutoRecordSummary(created)
+            window.api.manualPurchases.list(profileId).then(setPurchases)
+          }
+        }
+      }
+    }
+
+    autoRecordDuePurchases()
+    return () => {
+      cancelled = true
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [purchasesLoaded, plans.length, holdings.length])
 
   async function handleSubmit(e: FormEvent): Promise<void> {
     e.preventDefault()
@@ -358,7 +451,25 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
     <div>
       <div className="page-header">
         <h1>적립식 계획 &amp; 복리 시뮬레이션</h1>
+        {autoRecording && <span className="muted small">지난 예정 회차 자동 기록 확인 중…</span>}
       </div>
+
+      {autoRecordSummary && autoRecordSummary.length > 0 && (
+        <div className="card" style={{ background: 'var(--primary-soft)', borderColor: 'var(--primary)' }}>
+          <p style={{ margin: 0 }}>
+            지난 예정 회차 <strong>{autoRecordSummary.length}건</strong>을 매매 이력에 자동 기록했어요: {autoRecordSummary.join(', ')}.
+            체결가는 그날 종가 기준 추정치라 실제와 다르면 '매매 이력'에서 직접 수정하세요.
+          </p>
+          <button
+            type="button"
+            className="link-plain"
+            style={{ marginTop: 8 }}
+            onClick={() => setAutoRecordSummary(null)}
+          >
+            닫기
+          </button>
+        </div>
+      )}
 
       <form className="card form-grid" onSubmit={handleSubmit}>
         <label>
@@ -868,7 +979,8 @@ export default function ContributionPlanPage({ profileId, holdings }: Props): JS
                 ))}
               </ul>
               <p className="muted small">
-                실제 매수는 증권사 앱에서 직접 진행하고, 체결 결과는 추후 '추가매수 기록' 기능으로 입력합니다.
+                실제 매수는 증권사 앱에서 직접 진행하세요. 이 예정일이 지나면 이 앱을 열 때 자동으로 그날 종가 기준
+                추정 체결가로 '매매 이력'에 기록됩니다 — 실제 체결가와 다르면 '매매 이력'에서 직접 수정하면 됩니다.
               </p>
             </div>
           </section>

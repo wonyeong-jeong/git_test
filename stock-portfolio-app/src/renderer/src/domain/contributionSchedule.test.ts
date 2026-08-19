@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { generateScheduleEvents, nextScheduledEvents } from './contributionSchedule'
+import { findUnrecordedPastEvents, generateScheduleEvents, nextScheduledEvents } from './contributionSchedule'
 
 describe('generateScheduleEvents', () => {
   it('매월 회차를 12개월치 생성한다 (endDate 없을 때 horizonMonths 기준)', () => {
@@ -117,5 +117,35 @@ describe('nextScheduledEvents', () => {
     expect(events.every((e) => e.date >= '2026-08-17')).toBe(true)
     const weekdays = events.map((e) => new Date(e.date + 'T00:00:00').getDay())
     expect(weekdays.every((d) => d >= 1 && d <= 5)).toBe(true)
+  })
+})
+
+describe('findUnrecordedPastEvents', () => {
+  it('오늘 이전(포함) 회차 중 이미 기록된 날짜는 제외하고 돌려준다', () => {
+    const events = findUnrecordedPastEvents(
+      { frequency: 'MONTHLY', amount: 300_000, startDate: '2026-01-15' },
+      '2026-04-20',
+      new Set(['2026-02-15'])
+    )
+    // 1/15, 2/15(기록됨→제외), 3/15, 4/15까지가 오늘(4/20) 이전 회차
+    expect(events.map((e) => e.date)).toEqual(['2026-01-15', '2026-03-15', '2026-04-15'])
+  })
+
+  it('오늘 이후(미래) 회차는 포함하지 않는다', () => {
+    const events = findUnrecordedPastEvents(
+      { frequency: 'MONTHLY', amount: 300_000, startDate: '2026-01-15' },
+      '2026-02-20',
+      new Set()
+    )
+    expect(events.map((e) => e.date)).toEqual(['2026-01-15', '2026-02-15'])
+  })
+
+  it('전부 이미 기록되어 있으면 빈 배열을 반환한다', () => {
+    const events = findUnrecordedPastEvents(
+      { frequency: 'WEEKLY', amount: 50_000, startDate: '2026-01-01', endDate: '2026-01-15' },
+      '2026-01-20',
+      new Set(['2026-01-01', '2026-01-08', '2026-01-15'])
+    )
+    expect(events).toEqual([])
   })
 })

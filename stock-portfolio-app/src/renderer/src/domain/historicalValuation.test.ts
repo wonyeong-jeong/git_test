@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildHistoricalValueSeries, buildQuantityTimeline } from './historicalValuation'
+import { buildHistoricalValueSeries, buildQuantityTimeline, findNearestPrice } from './historicalValuation'
 
 describe('buildQuantityTimeline', () => {
   it('매매 기록이 없으면 시작 수량만 담긴 타임라인을 반환한다', () => {
@@ -70,5 +70,30 @@ describe('buildHistoricalValueSeries', () => {
 
   it('입력이 비어 있으면 빈 배열을 반환한다', () => {
     expect(buildHistoricalValueSeries([])).toEqual([])
+  })
+})
+
+describe('findNearestPrice', () => {
+  const points = [
+    { date: '2024-01-05', close: 100 },
+    { date: '2024-01-08', close: 110 },
+    { date: '2024-01-12', close: 120 }
+  ]
+
+  it('정확히 그 날짜의 시세가 있으면 그걸 쓴다', () => {
+    expect(findNearestPrice(points, '2024-01-08')).toEqual({ date: '2024-01-08', close: 110 })
+  })
+
+  it('그 날짜에 거래가 없으면(주말 등) 바로 이전 종가를 쓴다', () => {
+    // 1/10(토요일 가정)에 시세가 없으면 1/8 종가를 대신 쓴다
+    expect(findNearestPrice(points, '2024-01-10')).toEqual({ date: '2024-01-08', close: 110 })
+  })
+
+  it('조회 범위가 그 날짜보다 늦게 시작해서 이전 값이 없으면 그 이후 첫 값을 대신 쓴다', () => {
+    expect(findNearestPrice(points, '2024-01-01')).toEqual({ date: '2024-01-05', close: 100 })
+  })
+
+  it('시세가 아예 없으면 null을 반환한다', () => {
+    expect(findNearestPrice([], '2024-01-08')).toBeNull()
   })
 })

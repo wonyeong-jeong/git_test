@@ -109,6 +109,28 @@ export function nextScheduledEvents(
   return events
 }
 
+/** 적립식 계획이 자동으로 만든 매매 이력 기록을 표시하는 마커. 사용자가 직접 입력한 기록과
+ * 구분해서 보여주고(TransactionsPage), 다음 실행 때 같은 회차를 중복 기록하지 않도록
+ * "이미 기록된 날짜"를 판단하는 데도 쓰인다. */
+export const AUTO_RECORD_NOTE_PREFIX = '[적립식 자동기록]'
+
+/**
+ * "그날이 지나면 매매 이력에 자동으로 등록" 기능 전용. generateScheduleEvents로 시작일부터
+ * 넉넉히(20년치) 전부 나열한 뒤, 오늘 이전(오늘 포함) 회차 중 아직 매매 이력에 없는 날짜만
+ * 골라낸다 — 호출부(ContributionPlanPage)가 이 목록을 실제 시세로 체결가를 채워서
+ * ManualPurchase로 만든다. alreadyRecordedDates는 그 종목의 기존 매매 이력 날짜 집합이면
+ * 되고, 자동 기록이든 사용자가 직접 기록한 것이든 구분하지 않는다 — 이미 그 날짜에 뭔가
+ * 기록되어 있으면 중복 생성하지 않기 위함이다.
+ */
+export function findUnrecordedPastEvents(
+  input: ContributionScheduleInput,
+  todayIso: string,
+  alreadyRecordedDates: ReadonlySet<string>
+): ScheduledContributionEvent[] {
+  const all = generateScheduleEvents(input, 240)
+  return all.filter((ev) => ev.date <= todayIso && !alreadyRecordedDates.has(ev.date))
+}
+
 function addMonths(date: Date, months: number): Date {
   const d = new Date(date)
   const targetDay = d.getDate()

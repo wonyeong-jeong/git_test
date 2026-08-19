@@ -2,6 +2,7 @@ import { FormEvent, useEffect, useMemo, useState } from 'react'
 import type { Broker, Holding, ManualPurchase, TradeSide } from '../../types'
 import { BROKER_LABELS } from '../../types'
 import StockSearchInput, { type StockOption } from '../../components/StockSearchInput'
+import { AUTO_RECORD_NOTE_PREFIX } from '../../domain/contributionSchedule'
 import { formatMoney } from '../../utils/format'
 
 interface Props {
@@ -385,12 +386,19 @@ export default function TransactionsPage({ profileId, holdings, onHoldingsChange
                       <span className={`badge ${r.side === 'SELL' ? 'badge-sell' : 'badge-buy'}`}>
                         {SIDE_LABELS[r.side ?? 'BUY']}
                       </span>
+                      {r.note?.startsWith(AUTO_RECORD_NOTE_PREFIX) && (
+                        <span className="badge" style={{ marginLeft: 4, background: 'var(--bg)', color: 'var(--muted-strong)' }}>
+                          자동
+                        </span>
+                      )}
                     </td>
                     <td>{holdingLabel(r.holdingId)}</td>
                     <td>{r.quantity.toLocaleString()}</td>
                     <td>{formatMoney(r.price, currency)}</td>
                     <td>{formatMoney(r.quantity * r.price, currency)}</td>
-                    <td className="muted">{r.note ?? '—'}</td>
+                    <td className="muted">
+                      {r.note?.startsWith(AUTO_RECORD_NOTE_PREFIX) ? '적립식 계획 자동 기록 (종가 기준 추정)' : (r.note ?? '—')}
+                    </td>
                     <td>
                       <button className="link-danger" onClick={() => handleDelete(r.id)}>
                         삭제

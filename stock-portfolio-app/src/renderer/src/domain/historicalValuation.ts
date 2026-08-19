@@ -51,6 +51,16 @@ function lastAtOrBefore<T extends { date: string }>(points: T[], date: string): 
   return result
 }
 
+/** date와 가장 가까운 시세를 찾는다 — 그 날짜 이전(같은 날 포함) 중 가장 최근 것을 우선하고,
+ * 조회 범위가 그 날짜보다 늦게 시작해서 하나도 없으면 그 날짜 이후 중 가장 이른 것을 대신
+ * 쓴다. pricePoints는 date 오름차순 정렬이 전제됨. "적립식 계획 자동 기록"에서 예정일이
+ * 정확히 거래일이 아니어도(주말 등) 가장 가까운 실제 종가로 체결가를 추정하는 데 쓴다. */
+export function findNearestPrice(pricePoints: PricePoint[], date: string): PricePoint | null {
+  const before = lastAtOrBefore(pricePoints, date)
+  if (before) return before
+  return pricePoints.find((p) => p.date > date) ?? null
+}
+
 export interface HoldingHistoricalSeries {
   quantityTimeline: QuantityPoint[]
   pricePoints: PricePoint[]
